@@ -30,6 +30,11 @@ public:
 	std::vector<uint32_t> item_pos_recver;
 	GaloisFieldPacking pack;
 
+	/**
+	 * In MPCOT with regular LPN noise assumption, the param `n`, `t`, and `log_bin_sz` are
+	 * related as: `n = t * (2**log_bin_sz)`,
+	 * meaning `t` calls to SPCOT, each with a vector length of `2**log_bin_sz`.
+	*/
 	MpcotReg(int party, int threads, int n, int t, int log_bin_sz, ThreadPool * pool, IO **ios) {
 		this->party = party;
 		this->threads = threads;
@@ -106,7 +111,10 @@ public:
 
 	void exec_parallel_sender(vector<SPCOT_Sender<IO>*> &senders,
 			OTPre<IO> *ot, block* sparse_vector) {
-		vector<future<void>> fut;		
+		vector<future<void>> fut;
+		// Assume LPN with a regular noise distribution,
+		// the task is simply divided into t calls of SPCOT, 
+		// each with a length of n/t. Here `tree_n` is t, `leave_n` is n/t.
 		int width = tree_n / threads;
 		int start = 0, end = width;
 		for(int i = 0; i < threads - 1; ++i) {	

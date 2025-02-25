@@ -15,14 +15,13 @@ class OTPre { public:
 	vector<const block*> pointers0;
 	vector<const block*> pointers1;
 
-	CCRH ccrh;
 	int length, count;
 	block Delta;
 	OTPre(IO* io, int length, int times) {
 		this->io = io;
 		this->length = length;
 		n = length*times;
-		pre_data = new block[2*n];
+		pre_data = new block[n];
 		bits = new bool[n];
 		count = 0;
 	}
@@ -37,20 +36,18 @@ class OTPre { public:
 
 	void send_pre(block * data, block in_Delta) {
 		Delta = in_Delta;
-		ccrh.Hn(pre_data, data, n, pre_data+n);
-		xorBlocks_arr(pre_data+n, data, Delta, n);
-		ccrh.Hn(pre_data+n, pre_data+n, n);
+		memcpy(pre_data, data, n*sizeof(block));
 	}
 
 	void recv_pre(block * data, bool * b) {
 		memcpy(bits, b, n);
-		ccrh.Hn(pre_data, data, n);
+		memcpy(pre_data, data, n*sizeof(block));
 	}
 
 	void recv_pre(block * data) {
 		for(int i = 0; i < n; ++i)
 			bits[i] = getLSB(data[i]);
-		ccrh.Hn(pre_data, data, n);
+		memcpy(pre_data, data, n*sizeof(block));
 	}
 
 	void choices_sender() {
@@ -66,24 +63,22 @@ class OTPre { public:
 		count = 0;
 	}
 
-	void send(const block * m0, const  block * m1, int length, IO * io2, int s) {
-		block pad[2];
+	void send(const block* m, int length, IO* io2, int s) {
+		block pad;
 		int k = s*length;
 		for (int i = 0; i < length; ++i) {
-				pad[0] = m0[i] ^ pre_data[k];
-				pad[1] = m1[i] ^ pre_data[k+n];
+				pad = m[i] ^ pre_data[k];
 			++k;
-			io2->send_block(pad, 2);
+			io2->send_block(&pad, 1);
 		}
 	}
 
-	void recv(block* data, const bool* b, int length, IO* io2, int s) {
+	void recv(block* data, int length, IO* io2, int s) {
 		int k = s*length;
-		block pad[2];
+		block pad;
 		for (int i = 0; i < length; ++i) {
-			io2->recv_block(pad, 2);
-			int ind = b[i] ? 1 : 0;
-			data[i] = pre_data[k] ^ pad[ind];
+			io2->recv_block(&pad, 1);
+			data[i] = pre_data[k] ^ pad;
 			++k;
 		}
 	}

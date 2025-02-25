@@ -4,6 +4,7 @@
 #include "emp-tool/emp-tool.h"
 #include "emp-ot/emp-ot.h"
 #include "emp-ot/ferret/twokeyprp.h"
+#include "emp-ot/ferret/ccrh.h"
 
 using namespace emp;
 
@@ -26,7 +27,7 @@ class SPCOT_Sender { public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
-		m = new block[(depth-1)*2];
+		m = new block[depth-1];
 	}
 
 	~SPCOT_Sender() {
@@ -36,18 +37,18 @@ class SPCOT_Sender { public:
 	// generate GGM tree, transfer secret, F2^k
 	void compute(block* ggm_tree_mem, block secret) {
 		this->delta = secret;
-		ggm_tree_gen(m, m+depth-1, ggm_tree_mem, secret);
+		ggm_tree_gen(m, ggm_tree_mem, secret);
 	}
 
 	// send the nodes by oblivious transfer, F2^k
 	template<typename OT>
 	void send_f2k(OT * ot, IO * io2, int s) {
-		ot->send(m, &m[depth-1], depth-1, io2, s);
+		ot->send(m, depth-1, io2, s);
 		io2->send_data(&secret_sum_f2, sizeof(block));
 	}
 
-	void ggm_tree_gen(block *ot_msg_0, block *ot_msg_1, block* ggm_tree_mem, block secret) {
-		ggm_tree_gen(ot_msg_0, ot_msg_1, ggm_tree_mem);
+	void ggm_tree_gen(block *ot_msg, block* ggm_tree_mem, block secret) {
+		ggm_tree_gen(ot_msg, ggm_tree_mem);
 		secret_sum_f2 = zero_block;
 		block one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
 		for(int i = 0; i < leave_n; ++i) {
@@ -58,31 +59,26 @@ class SPCOT_Sender { public:
 	}
 
 	// generate GGM tree from the top
-	void ggm_tree_gen(block *ot_msg_0, block *ot_msg_1, block* ggm_tree_mem) {
+	void ggm_tree_gen(block *ot_msg, block* ggm_tree_mem) {
 		this->ggm_tree = ggm_tree_mem;
-		TwoKeyPRP *prp = new TwoKeyPRP(zero_block, makeBlock(0, 1));
-		prp->node_expand_1to2(ggm_tree, seed);
-		ot_msg_0[0] = ggm_tree[0];
-		ot_msg_1[0] = ggm_tree[1];
-		prp->node_expand_2to4(&ggm_tree[0], &ggm_tree[0]);
-		ot_msg_0[1] = ggm_tree[0] ^ ggm_tree[2];
-		ot_msg_1[1] = ggm_tree[1] ^ ggm_tree[3];
+		FerretCCRH *ccrh = new FerretCCRH(zero_block);
+		ggm_tree[0] = seed;
+		ggm_tree[1] = delta ^ ggm_tree[0];
+		ot_msg[0] = ggm_tree[0];
+		ccrh->node_expand_2to4(ggm_tree, ggm_tree);
+		ot_msg[1] = ggm_tree[0] ^ ggm_tree[2];
 		for(int h = 2; h < depth-1; ++h) {
-			ot_msg_0[h] = ot_msg_1[h] = zero_block;
+			ot_msg[h] = zero_block;
 			int sz = 1<<h;
 			for(int i = sz-4; i >=0; i-=4) {
-				prp->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
-				ot_msg_0[h] ^= ggm_tree[i*2];
-				ot_msg_0[h] ^= ggm_tree[i*2+2];
-				ot_msg_0[h] ^= ggm_tree[i*2+4];
-				ot_msg_0[h] ^= ggm_tree[i*2+6];
-				ot_msg_1[h] ^= ggm_tree[i*2+1];
-				ot_msg_1[h] ^= ggm_tree[i*2+3];
-				ot_msg_1[h] ^= ggm_tree[i*2+5];
-				ot_msg_1[h] ^= ggm_tree[i*2+7];
+				ccrh->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
+				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2];
+				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+2];
+				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+4];
+				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+6];
 			}
 		}
-		delete prp;
+		delete ccrh;
 	}
 
 	void consistency_check_msg_gen(block *V) {
