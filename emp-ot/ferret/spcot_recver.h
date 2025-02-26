@@ -71,6 +71,7 @@ public:
 		for(int i = 1; i < depth; ++i) {
 			to_fill_idx = to_fill_idx * 2;
 			ggm_tree[to_fill_idx] = ggm_tree[to_fill_idx+1] = zero_block;
+			// b[i-1] is negative of the choice bit
 			if(b[i-1] == false) {
 				layer_recover(i, 0, to_fill_idx, m[i-1], &ccrh);
 				to_fill_idx += 1;
