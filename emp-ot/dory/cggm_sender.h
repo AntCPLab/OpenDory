@@ -63,6 +63,7 @@ class CGGM_Sender { public:
 		dfs_levels[1] = 0;
 		int top = 1;
 		while (top >= 0) {
+			// We arrive at a leave, don't expand and go back to last level
 			if (dfs_levels[top] >= depth-2) {
 				top--;
 				continue;

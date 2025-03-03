@@ -64,14 +64,14 @@ void test_cggm(int party, NetIO* io) {
             io->recv_block(&sender_acc, 1);
             if (w < recver.get_index()) {
                 if(!cmpBlock(&acc, &sender_acc, 1)) {
-                    std::cout << "Inconsistent index: " << w << ",\t" << "Sender Acc:\t" << sender_acc << std::endl;
+                    std::cout << "Inconsistent index: " << w << ",\t" << "Receiver Acc:\t" << acc << ",\tSender Acc:\t" << sender_acc << std::endl;
 				    error("wrong!\n"); 
                 }
             }
             else {
                 sender_acc ^= sender_secret;
                 if(!cmpBlock(&acc, &sender_acc, 1)) {
-                    std::cout << "Inconsistent index: " << w << ",\t" << "Sender Acc:\t" << sender_acc << std::endl;
+                    std::cout << "Inconsistent index: " << w << ",\t" << "Receiver Acc:\t" << acc <<  ",\tSender Acc:\t" << sender_acc << std::endl;
 				    error("wrong!\n");
                 }
             }

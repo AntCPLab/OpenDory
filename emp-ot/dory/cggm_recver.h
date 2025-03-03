@@ -10,8 +10,9 @@ using namespace emp;
 template<typename IO>
 class CGGM_Recver {
 public:
-	block *ggm_tree, *half_sum;
+	block *tree_traversal_stack, *half_sum;
 	block *path_sum;
+	uint32_t *dfs_levels;
 	bool *b;
 	uint32_t choice_pos, depth, leave_n;
 	IO *io;
@@ -21,17 +22,21 @@ public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(depth_in-1);
+		tree_traversal_stack = new block[depth];
 		half_sum = new block[depth-1];
 		b = new bool[depth-1];
 		path_sum = new block[depth];
 		ccrh = new DoryCCRH(zero_block);
+		dfs_levels = new uint32_t[depth];
 	}
 
 	~CGGM_Recver(){
+		delete[] tree_traversal_stack;
 		delete[] half_sum;
 		delete[] b;
 		delete[] path_sum;
 		delete ccrh;
+		delete[] dfs_levels;
 	}
 
 	int get_index() {
@@ -54,8 +59,8 @@ public:
 	// receive the message and reconstruct the tree
 	// j: position of the secret, begins from 0
 	void compute(block* ggm_tree_mem) {
-		this->ggm_tree = ggm_tree_mem;
-		ggm_tree_reconstruction(b, half_sum);
+		// this->ggm_tree = ggm_tree_mem;
+		ggm_tree_reconstruction();
 		// ggm_tree[choice_pos] = zero_block;
 		// block nodes_sum = zero_block;
 		// block one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
@@ -66,41 +71,81 @@ public:
 		// ggm_tree[choice_pos] = nodes_sum;
 	}
 
-	void ggm_tree_reconstruction(bool *b, block *m) {
-		uint32_t to_fill_idx = 0;
-		for(uint32_t i = 1; i < depth; ++i) {
-			to_fill_idx = to_fill_idx * 2;
-			ggm_tree[to_fill_idx] = ggm_tree[to_fill_idx+1] = zero_block;
-			// b[i-1] is negative of the choice bit
-			if(b[i-1] == false) {
-				layer_recover(i, 0, to_fill_idx, m[i-1]);
-				to_fill_idx += 1;
-			} 
-			else 
-				layer_recover(i, 1, to_fill_idx+1, m[i-1]);
-		}
-		ggm_tree[choice_pos] = zero_block;
-		for(uint32_t i = 0; i < leave_n; ++i) {
-			if (i != choice_pos)
-				ggm_tree[choice_pos] ^= ggm_tree[i];
-		}
-		path_sum[depth-1] = ggm_tree[choice_pos];
-	}
+	// void ggm_tree_reconstruction(bool *b, block *m) {
+	// 	uint32_t to_fill_idx = 0;
+	// 	for(uint32_t i = 1; i < depth; ++i) {
+	// 		to_fill_idx = to_fill_idx * 2;
+	// 		ggm_tree[to_fill_idx] = ggm_tree[to_fill_idx+1] = zero_block;
+	// 		// b[i-1] is negative of the choice bit
+	// 		if(b[i-1] == false) {
+	// 			layer_recover(i, 0, to_fill_idx, m[i-1]);
+	// 			to_fill_idx += 1;
+	// 		} 
+	// 		else 
+	// 			layer_recover(i, 1, to_fill_idx+1, m[i-1]);
+	// 	}
+	// 	ggm_tree[choice_pos] = zero_block;
+	// 	for(uint32_t i = 0; i < leave_n; ++i) {
+	// 		if (i != choice_pos)
+	// 			ggm_tree[choice_pos] ^= ggm_tree[i];
+	// 	}
+	// 	path_sum[depth-1] = ggm_tree[choice_pos];
+	// }
 
-	void layer_recover(uint32_t depth, uint32_t lr, uint32_t to_fill_idx, block sum) {
-		uint32_t item_n = 1 << depth;
-		block nodes_sum = zero_block;
+	// void layer_recover(uint32_t depth, uint32_t lr, uint32_t to_fill_idx, block sum) {
+	// 	uint32_t item_n = 1 << depth;
+	// 	block nodes_sum = zero_block;
 		
-		for(uint32_t i = lr; i < item_n; i+=2)
-			nodes_sum = nodes_sum ^ ggm_tree[i];
-		path_sum[depth-1] = ggm_tree[to_fill_idx] = nodes_sum ^ sum;
-		if(depth == this->depth-1) return;
-		if (item_n == 2)
-			ccrh->node_expand_2to4(ggm_tree, ggm_tree);
-		else {
-			for(int i = item_n-4; i >= 0; i-=4)
-				ccrh->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
+	// 	for(uint32_t i = lr; i < item_n; i+=2)
+	// 		nodes_sum = nodes_sum ^ ggm_tree[i];
+	// 	path_sum[depth-1] = ggm_tree[to_fill_idx] = nodes_sum ^ sum;
+	// 	if(depth == this->depth-1) return;
+	// 	if (item_n == 2)
+	// 		ccrh->node_expand_2to4(ggm_tree, ggm_tree);
+	// 	else {
+	// 		for(int i = item_n-4; i >= 0; i-=4)
+	// 			ccrh->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
+	// 	}
+	// }
+
+	void ggm_tree_reconstruction() {		
+		for (int h = 1; h < depth - 1; h++)
+			path_sum[h] = zero_block;
+		tree_traversal_stack[0] = path_sum[0] = half_sum[0];
+		dfs_levels[0] = 0;
+		block leaves_sum = zero_block;
+		int top = 0, filled_level = 0;
+		while (top >= 0) {
+			// When only one node left in stack, we are done with its corresponding level, and
+			// it is time to calculate the path sum at this level
+			if (top == 0) {
+				if (dfs_levels[top] == filled_level + 1) {
+					// Filled in the last off-path node, and insert it into the stack
+					path_sum[dfs_levels[top]] ^= half_sum[dfs_levels[top]];
+					tree_traversal_stack[top + 1] = path_sum[dfs_levels[top]];
+					dfs_levels[top + 1] = dfs_levels[top];
+					top++;
+					filled_level++;
+					continue;
+				}
+			}
+			// We arrive at a leave, don't expand and go back to last level
+			if (dfs_levels[top] >= depth-2) {
+				leaves_sum ^= tree_traversal_stack[top];
+				top--;
+				continue;
+			}
+			ccrh->node_expand(&tree_traversal_stack[top+1], &tree_traversal_stack[top], &tree_traversal_stack[top]);
+			dfs_levels[top] += 1;
+			dfs_levels[top+1] = dfs_levels[top];
+			top++;
+
+			if (b[dfs_levels[top]])
+				path_sum[dfs_levels[top]] ^= tree_traversal_stack[top-1];
+			else
+				path_sum[dfs_levels[top]] ^= tree_traversal_stack[top];
 		}
+		path_sum[depth - 1] = leaves_sum;
 	}
 
 	// compute sum of all leaves with index <= w
