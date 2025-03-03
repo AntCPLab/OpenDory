@@ -59,54 +59,8 @@ public:
 	// receive the message and reconstruct the tree
 	// j: position of the secret, begins from 0
 	void compute() {
-		// this->ggm_tree = ggm_tree_mem;
 		ggm_tree_reconstruction();
-		// ggm_tree[choice_pos] = zero_block;
-		// block nodes_sum = zero_block;
-		// block one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
-		// for(int i = 0; i < leave_n; ++i) {
-		// 	ggm_tree[i] = ggm_tree[i] & one;
-		// 	nodes_sum = nodes_sum ^ ggm_tree[i];
-		// }
-		// ggm_tree[choice_pos] = nodes_sum;
 	}
-
-	// void ggm_tree_reconstruction(bool *b, block *m) {
-	// 	uint32_t to_fill_idx = 0;
-	// 	for(uint32_t i = 1; i < depth; ++i) {
-	// 		to_fill_idx = to_fill_idx * 2;
-	// 		ggm_tree[to_fill_idx] = ggm_tree[to_fill_idx+1] = zero_block;
-	// 		// b[i-1] is negative of the choice bit
-	// 		if(b[i-1] == false) {
-	// 			layer_recover(i, 0, to_fill_idx, m[i-1]);
-	// 			to_fill_idx += 1;
-	// 		} 
-	// 		else 
-	// 			layer_recover(i, 1, to_fill_idx+1, m[i-1]);
-	// 	}
-	// 	ggm_tree[choice_pos] = zero_block;
-	// 	for(uint32_t i = 0; i < leave_n; ++i) {
-	// 		if (i != choice_pos)
-	// 			ggm_tree[choice_pos] ^= ggm_tree[i];
-	// 	}
-	// 	path_sum[depth-1] = ggm_tree[choice_pos];
-	// }
-
-	// void layer_recover(uint32_t depth, uint32_t lr, uint32_t to_fill_idx, block sum) {
-	// 	uint32_t item_n = 1 << depth;
-	// 	block nodes_sum = zero_block;
-		
-	// 	for(uint32_t i = lr; i < item_n; i+=2)
-	// 		nodes_sum = nodes_sum ^ ggm_tree[i];
-	// 	path_sum[depth-1] = ggm_tree[to_fill_idx] = nodes_sum ^ sum;
-	// 	if(depth == this->depth-1) return;
-	// 	if (item_n == 2)
-	// 		ccrh->node_expand_2to4(ggm_tree, ggm_tree);
-	// 	else {
-	// 		for(int i = item_n-4; i >= 0; i-=4)
-	// 			ccrh->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
-	// 	}
-	// }
 
 	void ggm_tree_reconstruction() {		
 		for (int h = 1; h < depth - 1; h++)
