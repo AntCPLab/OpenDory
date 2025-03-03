@@ -1,11 +1,11 @@
-#include "emp-ot/dory/mpcot_reg.h"
+#include "emp-ot/dory/stream_cot_reg.h"
 #include "emp-ot/dory/base_cot.h"
 using namespace std;
 
 int port, party;
 const static int threads = 1;
 
-void test_mpcot(int party, NetIO *ios[threads], int64_t num_ot) {
+void test_streamcot(int party, NetIO *ios[threads]) {
 	BaseCot<NetIO> base_cot(party, ios[0], false);
     base_cot.cot_gen_pre();
     block secret = base_cot.ot_delta;
@@ -20,20 +20,20 @@ void test_mpcot(int party, NetIO *ios[threads], int64_t num_ot) {
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
-	DoryMpcotReg<NetIO> * mpcot = new DoryMpcotReg<NetIO>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
-	if(party == ALICE) mpcot->sender_init(secret);
-	else mpcot->recver_init();
-	mpcot->mpcot(buf, &pre_ot, nullptr);
+	StreamCotReg<NetIO> * streamcot = new StreamCotReg<NetIO>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
+	if(party == ALICE) streamcot->sender_init(secret);
+	else streamcot->recver_init();
+	streamcot->mpcot(buf, &pre_ot, nullptr);
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
 
 	// RCOT
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	block data;
-	mpcot->rcot(&data, 1);
+	streamcot->rcot(&data, 1);
 	std::cout << "data:\t" << data << std::endl;
 
-	delete mpcot;
+	delete streamcot;
 	delete pool;
 	delete[] buf;
 }
@@ -43,16 +43,8 @@ int main(int argc, char** argv) {
 	NetIO* ios[threads];
 	for(int i = 0; i < threads; ++i)
 		ios[i] = new NetIO(party == ALICE?nullptr:"127.0.0.1",port+i);
-
-	int64_t length = 24;
-	if (argc > 3)
-		length = atoi(argv[3]);
-	if(length > 30) {
-		cout <<"Large test size! comment me if you want to run this size\n";
-		exit(1);
-	}
 		
-	test_mpcot(party, ios, length);
+	test_streamcot(party, ios);
 
 	for(int i = 0; i < threads; ++i)
 		delete ios[i];

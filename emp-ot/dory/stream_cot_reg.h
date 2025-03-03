@@ -1,5 +1,5 @@
-#ifndef DORY_MPCOT_REG_H__
-#define DORY_MPCOT_REG_H__
+#ifndef STREAM_COT_REG_H__
+#define STREAM_COT_REG_H__
 
 #include <emp-tool/emp-tool.h>
 #include <set>
@@ -11,7 +11,7 @@ using namespace emp;
 using std::future;
 
 template<typename IO>
-class DoryMpcotReg {
+class StreamCotReg {
 public:
 	int party, threads;
 	int item_n, idx_max, m;
@@ -43,7 +43,7 @@ public:
 	 * related as: `n = t * (2**log_bin_sz)`,
 	 * meaning `t` calls to SPCOT, each with a vector length of `2**log_bin_sz`.
 	*/
-	DoryMpcotReg(int party, int threads, int n, int t, int log_bin_sz, ThreadPool * pool, IO **ios) {
+	StreamCotReg(int party, int threads, int n, int t, int log_bin_sz, ThreadPool * pool, IO **ios) {
 		this->party = party;
 		this->threads = threads;
 		netio = ios[0];
@@ -69,7 +69,7 @@ public:
 		one = makeBlock(0x0LL, 0x1LL);
 	}
 
-	~DoryMpcotReg() {
+	~StreamCotReg() {
 		for (auto p : senders) delete p;
 		for (auto p : recvers) delete p;
 	}
