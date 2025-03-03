@@ -48,10 +48,8 @@ void test_cggm(int party, NetIO* io) {
         pre_ot.choices_recver(recver.b);
         std::cout << "Receiver's index: " << recver.get_index() << std::endl;
 
-        block* recv_ggm_mem = new block[1 << depth];
-
         recver.recv_f2k<OTPre<NetIO>>(&pre_ot, io, 0);
-        recver.compute(recv_ggm_mem);
+        recver.compute();
 
         block sender_secret;
         io->recv_block(&sender_secret, 1);
@@ -77,8 +75,6 @@ void test_cggm(int party, NetIO* io) {
             }
         }
         std::cout << std::endl;
-
-        delete[] recv_ggm_mem;
     }
     
 }

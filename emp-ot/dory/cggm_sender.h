@@ -43,7 +43,7 @@ class CGGM_Sender { public:
 	// generate GGM tree, transfer secret, F2^k
 	void compute(block secret) {
 		this->delta = secret;
-		ggm_tree_gen(half_sum);
+		ggm_tree_gen();
 	}
 
 	// send the nodes by oblivious transfer, F2^k
@@ -53,11 +53,11 @@ class CGGM_Sender { public:
 	}
 
 	// generate GGM tree from the top
-	void ggm_tree_gen(block *ot_msg) {
-		tree_traversal_stack[1] = ot_msg[0] = seed;
+	void ggm_tree_gen() {
+		tree_traversal_stack[1] = half_sum[0] = seed;
 		tree_traversal_stack[0] = delta ^ tree_traversal_stack[1];
 		for (int h = 1; h < depth - 1; h++)
-			ot_msg[h] = zero_block;
+			half_sum[h] = zero_block;
 
 		dfs_levels[0] = 0;
 		dfs_levels[1] = 0;
@@ -73,7 +73,7 @@ class CGGM_Sender { public:
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
 
-			ot_msg[dfs_levels[top]] ^= tree_traversal_stack[top];
+			half_sum[dfs_levels[top]] ^= tree_traversal_stack[top];
 		}
 	}
 

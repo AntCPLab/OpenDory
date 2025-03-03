@@ -184,7 +184,7 @@ public:
 	void exec_f2k_recver(CGGM_Recver<IO> *recver, OTPre<IO> *ot,
 			block *ggm_tree_mem, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
-		recver->compute(ggm_tree_mem);
+		recver->compute();
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
 	}

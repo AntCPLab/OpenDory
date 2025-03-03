@@ -58,7 +58,7 @@ public:
 
 	// receive the message and reconstruct the tree
 	// j: position of the secret, begins from 0
-	void compute(block* ggm_tree_mem) {
+	void compute() {
 		// this->ggm_tree = ggm_tree_mem;
 		ggm_tree_reconstruction();
 		// ggm_tree[choice_pos] = zero_block;
