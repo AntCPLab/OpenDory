@@ -33,6 +33,22 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 	streamcot->rcot(&data, 1);
 	std::cout << "data:\t" << data << std::endl;
 
+	if (party == ALICE) {
+		ios[0]->send_block(&secret, 1);
+		ios[0]->send_block(&data, 1);
+	}
+	else {
+		block sender_secret, sender_data;
+		ios[0]->recv_block(&sender_secret, 1);
+		ios[0]->recv_block(&sender_data, 1);
+		if (getLSB(data))
+			sender_data ^= sender_secret;
+		if(!cmpBlock(&data, &sender_data, 1)) {
+			std::cout << "Inconsistent data: " << data << ",\t" << "Sender data:\t" << sender_data << std::endl;
+			error("wrong!\n");
+		}
+	}
+
 	delete streamcot;
 	delete pool;
 	delete[] buf;

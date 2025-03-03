@@ -11,7 +11,8 @@ template<typename IO>
 class CGGM_Sender { public:
 	block seed;
 	block delta;
-	block *ggm_tree, *half_sum;
+	block *tree_traversal_stack, *half_sum;
+	uint32_t *dfs_levels;
 	IO *io;
 	int depth, leave_n;
 	PRG prg;
@@ -26,20 +27,23 @@ class CGGM_Sender { public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
+		tree_traversal_stack = new block[depth];
 		half_sum = new block[depth-1];
+		dfs_levels = new uint32_t[depth];
 		ccrh = new DoryCCRH(zero_block);
 	}
 
 	~CGGM_Sender() {
+		delete[] tree_traversal_stack;
 		delete[] half_sum;
+		delete[] dfs_levels;
 		delete ccrh;
 	}
 
 	// generate GGM tree, transfer secret, F2^k
-	void compute(block* ggm_tree_mem, block secret) {
+	void compute(block secret) {
 		this->delta = secret;
-		// ggm_tree_gen(sum, ggm_tree_mem, secret);
-		ggm_tree_gen(half_sum, ggm_tree_mem);
+		ggm_tree_gen(half_sum);
 	}
 
 	// send the nodes by oblivious transfer, F2^k
@@ -48,38 +52,28 @@ class CGGM_Sender { public:
 		ot->send(half_sum, depth-1, io2, s);
 	}
 
-	// void ggm_tree_gen(block *ot_msg, block* ggm_tree_mem, block secret) {
-	// 	ggm_tree_gen(ot_msg, ggm_tree_mem);
-	// 	secret_sum_f2 = zero_block;
-	// 	block one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
-	// 	for(int i = 0; i < leave_n; ++i) {
-	// 		ggm_tree[i] = ggm_tree[i] & one;
-	// 	}
-	// }
-
 	// generate GGM tree from the top
-	void ggm_tree_gen(block *ot_msg, block* ggm_tree_mem) {
-		this->ggm_tree = ggm_tree_mem;
-		ggm_tree[0] = seed;
-		ggm_tree[1] = delta ^ ggm_tree[0];
-		ot_msg[0] = ggm_tree[0];
-		ccrh->node_expand_2to4(ggm_tree, ggm_tree);
-		ot_msg[1] = ggm_tree[0] ^ ggm_tree[2];
-		for(int h = 2; h < depth-1; ++h) {
+	void ggm_tree_gen(block *ot_msg) {
+		tree_traversal_stack[1] = ot_msg[0] = seed;
+		tree_traversal_stack[0] = delta ^ tree_traversal_stack[1];
+		for (int h = 1; h < depth - 1; h++)
 			ot_msg[h] = zero_block;
-			int sz = 1<<h;
-			for(int i = sz-4; i >=0; i-=4) {
-				ccrh->node_expand_4to8(&ggm_tree[i*2], &ggm_tree[i]);
-				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2];
-				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+2];
-				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+4];
-				ot_msg[h] = ot_msg[h] ^ ggm_tree[i*2+6];
+
+		dfs_levels[0] = 0;
+		dfs_levels[1] = 0;
+		int top = 1;
+		while (top >= 0) {
+			if (dfs_levels[top] >= depth-2) {
+				top--;
+				continue;
 			}
+			ccrh->node_expand(&tree_traversal_stack[top+1], &tree_traversal_stack[top], &tree_traversal_stack[top]);
+			dfs_levels[top] += 1;
+			dfs_levels[top+1] = dfs_levels[top];
+			top++;
+
+			ot_msg[dfs_levels[top]] ^= tree_traversal_stack[top];
 		}
-		// block one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
-		// for(int i = 0; i < leave_n; ++i) {
-		// 	ggm_tree[i] = ggm_tree[i] & one;
-		// }
 	}
 
 	// compute sum of all leaves with index <= w

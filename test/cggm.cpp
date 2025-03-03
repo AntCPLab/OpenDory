@@ -27,9 +27,8 @@ void test_cggm(int party, NetIO* io) {
     if (party == ALICE) {
         CGGM_Sender<NetIO> sender(nullptr, depth);
         pre_ot.choices_sender();
-        block* sender_ggm_mem = new block[1 << depth];
 
-        sender.compute(sender_ggm_mem, secret);
+        sender.compute(secret);
         sender.send_f2k<OTPre<NetIO>>(&pre_ot, io, 0);
 
         io->send_block(&secret, 1);
@@ -42,7 +41,6 @@ void test_cggm(int party, NetIO* io) {
         }
         std::cout << std::endl;
 		io->flush();
-        delete[] sender_ggm_mem;
     }
     else {
         CGGM_Recver<NetIO> recver(nullptr, depth);

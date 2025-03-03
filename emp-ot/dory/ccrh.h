@@ -25,6 +25,15 @@ class DoryCCRH { public:
 		children[1] = children[1] ^ children[0];
 	}
 
+	void node_expand(block* left, block* right, const block* parent) {
+		block tmp;
+		tmp = *left = *right = *parent;
+		*left = tmp = sigma(tmp);
+		AES_ecb_encrypt_blks<1>(&tmp, &aes_key);
+		*left = *left ^ tmp;
+		*right = *right ^ *left;
+	}
+
 
 	void node_expand_2to4(block *children, const block *parent) {
 		block tmp[2];

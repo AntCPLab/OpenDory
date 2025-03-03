@@ -39,9 +39,9 @@ public:
 	block minustwo, one;
 
 	/**
-	 * In MPCOT with regular LPN noise assumption, the param `n`, `t`, and `log_bin_sz` are
+	 * Stream COT with regular LPN noise assumption, the param `n`, `t`, and `log_bin_sz` are
 	 * related as: `n = t * (2**log_bin_sz)`,
-	 * meaning `t` calls to SPCOT, each with a vector length of `2**log_bin_sz`.
+	 * meaning `t` calls to CGGM, each with a vector length of `2**log_bin_sz`.
 	*/
 	StreamCotReg(int party, int threads, int n, int t, int log_bin_sz, ThreadPool * pool, IO **ios) {
 		this->party = party;
@@ -174,7 +174,7 @@ public:
 
 	void exec_f2k_sender(CGGM_Sender<IO> *sender, OTPre<IO> *ot, 
 			block *ggm_tree_mem, IO *io, int i) {
-		sender->compute(ggm_tree_mem, Delta_f2k);
+		sender->compute(Delta_f2k);
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
 		io->flush();
 		if(is_malicious)
