@@ -89,16 +89,16 @@ public:
 	}
 
 	// MPFSS F_2k
-	void mpcot(block * sparse_vector, OTPre<IO> * ot, block *pre_cot_data) {
+	void mpcot(OTPre<IO> * ot, block *pre_cot_data) {
 		if(party == BOB) consist_check_chi_alpha = new block[item_n];
 		consist_check_VW = new block[item_n];
 
 		if(party == ALICE) {
 			mpcot_init_sender(senders, ot);
-			exec_parallel_sender(senders, ot, sparse_vector);
+			exec_parallel_sender(senders, ot);
 		} else {
 			mpcot_init_recver(recvers, ot);
-			exec_parallel_recver(recvers, ot, sparse_vector);
+			exec_parallel_recver(recvers, ot);
 		}
 
 		if(is_malicious)
@@ -127,8 +127,7 @@ public:
 		ot->reset();
 	}
 
-	void exec_parallel_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders,
-			OTPre<IO> *ot, block* sparse_vector) {
+	void exec_parallel_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
 		vector<future<void>> fut;
 		// Assume LPN with a regular noise distribution,
 		// the task is simply divided into t calls of SPCOT, 
@@ -137,45 +136,39 @@ public:
 		int start = 0, end = width;
 		for(int i = 0; i < threads - 1; ++i) {	
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
-						senders, ot, sparse_vector](){
+						senders, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_sender(senders[i], ot, sparse_vector+i*leave_n, 
-							ios[start/width], i);
+					exec_f2k_sender(senders[i], ot, ios[start/width], i);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_sender(senders[i], ot, sparse_vector+i*leave_n, 
-					ios[threads - 1], i);
+			exec_f2k_sender(senders[i], ot, ios[threads - 1], i);
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_parallel_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers,
-			OTPre<IO> *ot, block* sparse_vector) {
+	void exec_parallel_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
 		vector<future<void>> fut;		
 		int width = batch_tree_n / threads;
 		int start = 0, end = width;
 		for(int i = 0; i < threads - 1; ++i) {
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
-						recvers, ot, sparse_vector](){
+						recvers, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_recver(recvers[i], ot, sparse_vector+i*leave_n, 
-							ios[start/width], i);
+					exec_f2k_recver(recvers[i], ot, ios[start/width], i);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_recver(recvers[i], ot, sparse_vector+i*leave_n, 
-					ios[threads - 1], i);
+			exec_f2k_recver(recvers[i], ot, ios[threads - 1], i);
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, 
-			block *ggm_tree_mem, IO *io, int i) {
+	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, IO *io, int i) {
 		sender->compute(Delta_f2k);
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
 		io->flush();
@@ -183,8 +176,7 @@ public:
 			sender->consistency_check_msg_gen(consist_check_VW+i);
 	}
 
-	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot,
-			block *ggm_tree_mem, IO *io, int i) {
+	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
@@ -243,13 +235,13 @@ public:
 				tmp = Delta_f2k;
 			}
 			else 
-				senders[i]->acc_left(tmp, i % BatchSize, wj);
+				senders[i/BatchSize]->acc_left(tmp, i % BatchSize, wj);
 		}
 		else {
 			if (uj < i || uj > i)
 				tmp = zero_block;
 			else {
-				recvers[i]->acc_left(tmp, i % BatchSize, wj);
+				recvers[i/BatchSize]->acc_left(tmp, i % BatchSize, wj);
 			}
 		}
 	}

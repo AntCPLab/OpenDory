@@ -41,7 +41,7 @@ public:
 	}
 
 	uint32_t* get_index() {
-		memset(choice_pos, 0, BatchSize);
+		memset(choice_pos, 0, BatchSize * sizeof(uint32_t));
 		for(uint32_t i = 0; i < depth-1; ++i) {
 			for (int j = 0; j < BatchSize; j++) {
 				choice_pos[j] <<= 1;

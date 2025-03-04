@@ -3,7 +3,7 @@
 #include "emp-ot/dory/base_cot.h"
 using namespace std;
 
-const static int batch_size = 1;
+const static int batch_size = 8;
 
 void print_ggm(block* ggm, int depth) {
     block sum = zero_block;
@@ -36,10 +36,12 @@ void test_cggm(int party, NetIO* io) {
         io->send_block(&secret, 1);
         block acc;
         for (uint32_t w = 0; w < (1 << (depth - 1)); w++) {
-            sender.acc_left(acc, 0, w);
-            // std::cout << "[" << w << "]:\t" << acc << std::endl;
+            for (uint32_t tree_idx = 0; tree_idx < batch_size; tree_idx++) {
+                sender.acc_left(acc, tree_idx, w);
+                // std::cout << "[" << w << "]:\t" << acc << std::endl;
 
-            io->send_block(&acc, 1);
+                io->send_block(&acc, 1);
+            }
         }
         std::cout << std::endl;
 		io->flush();
@@ -49,7 +51,10 @@ void test_cggm(int party, NetIO* io) {
 
         pre_ot.choices_recver(recver.b);
         uint32_t* index = recver.get_index();
-        std::cout << "Receiver's index: " << index[0] << std::endl;
+        std::cout << "Receiver's index: [";
+        for (int i = 0; i < batch_size; i++)
+            std::cout << index[i] << ", ";
+        std::cout << "]" << std::endl;
 
         recver.recv_f2k<OTPre<NetIO>>(&pre_ot, io, 0);
         recver.compute();
@@ -58,22 +63,24 @@ void test_cggm(int party, NetIO* io) {
         io->recv_block(&sender_secret, 1);
         block acc;
         for (uint32_t w = 0; w < (1 << (depth - 1)); w++) {
-            recver.acc_left(acc, 0, w);
-            // std::cout << "[" << w << "]:\t" << acc << std::endl;
+            for (uint32_t tree_idx = 0; tree_idx < batch_size; tree_idx++) {
+                recver.acc_left(acc, tree_idx, w);
+                // std::cout << "[" << w << "]:\t" << acc << std::endl;
 
-            block sender_acc;
-            io->recv_block(&sender_acc, 1);
-            if (w < index[0]) {
-                if(!cmpBlock(&acc, &sender_acc, 1)) {
-                    std::cout << "Inconsistent index: " << w << ",\t" << "Receiver Acc:\t" << acc << ",\tSender Acc:\t" << sender_acc << std::endl;
-				    error("wrong!\n"); 
+                block sender_acc;
+                io->recv_block(&sender_acc, 1);
+                if (w < index[tree_idx]) {
+                    if(!cmpBlock(&acc, &sender_acc, 1)) {
+                        std::cout << "Inconsistent:\t" << tree_idx << ", " << w << ",\t" << "Receiver Acc:\t" << acc << ",\tSender Acc:\t" << sender_acc << std::endl;
+                        error("wrong!\n"); 
+                    }
                 }
-            }
-            else {
-                sender_acc ^= sender_secret;
-                if(!cmpBlock(&acc, &sender_acc, 1)) {
-                    std::cout << "Inconsistent index: " << w << ",\t" << "Receiver Acc:\t" << acc <<  ",\tSender Acc:\t" << sender_acc << std::endl;
-				    error("wrong!\n");
+                else {
+                    sender_acc ^= sender_secret;
+                    if(!cmpBlock(&acc, &sender_acc, 1)) {
+                        std::cout << "Inconsistent:\t" << tree_idx << ", " << w << ",\t" << "Receiver Acc:\t" << acc <<  ",\tSender Acc:\t" << sender_acc << std::endl;
+                        error("wrong!\n");
+                    }
                 }
             }
         }

@@ -4,7 +4,7 @@ using namespace std;
 
 int port, party;
 const static int threads = 1;
-const static int batch_size = 1;
+const static int batch_size = 8;
 
 void test_streamcot(int party, NetIO *ios[threads]) {
 	BaseCot<NetIO> base_cot(party, ios[0], false);
@@ -13,18 +13,15 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-    OTPre<NetIO> pre_ot(ios[0], ferret_b13.log_bin_sz * batch_size, ferret_b13.t / batch_size);
+    OTPre<NetIO> pre_ot(ios[0], ferret_b13.log_bin_sz * batch_size, (ferret_b13.t + batch_size - 1) / batch_size);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
-
-	block* buf = new block[ferret_b13.n];
-	cout << party << ": pre_ot.n: " << pre_ot.n << ", buf.n: " << ferret_b13.n << endl;
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
 	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
-	streamcot->mpcot(buf, &pre_ot, nullptr);
+	streamcot->mpcot(&pre_ot, nullptr);
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
 
@@ -52,7 +49,6 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 
 	delete streamcot;
 	delete pool;
-	delete[] buf;
 }
 
 int main(int argc, char** argv) {
