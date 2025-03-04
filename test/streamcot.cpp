@@ -4,6 +4,7 @@ using namespace std;
 
 int port, party;
 const static int threads = 1;
+const static int batch_size = 1;
 
 void test_streamcot(int party, NetIO *ios[threads]) {
 	BaseCot<NetIO> base_cot(party, ios[0], false);
@@ -12,7 +13,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-    OTPre<NetIO> pre_ot(ios[0], ferret_b13.log_bin_sz, ferret_b13.t);
+    OTPre<NetIO> pre_ot(ios[0], ferret_b13.log_bin_sz * batch_size, ferret_b13.t / batch_size);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
 	block* buf = new block[ferret_b13.n];
@@ -20,7 +21,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
-	StreamCotReg<NetIO> * streamcot = new StreamCotReg<NetIO>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
+	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	streamcot->mpcot(buf, &pre_ot, nullptr);

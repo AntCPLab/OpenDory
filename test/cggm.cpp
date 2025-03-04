@@ -3,6 +3,8 @@
 #include "emp-ot/dory/base_cot.h"
 using namespace std;
 
+const static int batch_size = 1;
+
 void print_ggm(block* ggm, int depth) {
     block sum = zero_block;
     for (int i = 0; i < (1 << (depth - 1)); i++) {
@@ -21,11 +23,11 @@ void test_cggm(int party, NetIO* io) {
         std::cout << "Sender's secret: " << secret << std::endl;
 
     uint32_t depth = 10;
-    OTPre<NetIO> pre_ot(io, depth - 1, 1);
+    OTPre<NetIO> pre_ot(io, (depth - 1) * batch_size, 1);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
     if (party == ALICE) {
-        CGGM_Sender<NetIO> sender(nullptr, depth);
+        CGGM_Sender<NetIO, 1> sender(nullptr, depth);
         pre_ot.choices_sender();
 
         sender.compute(secret);
@@ -33,8 +35,8 @@ void test_cggm(int party, NetIO* io) {
 
         io->send_block(&secret, 1);
         block acc;
-        for (int w = 0; w < (1 << (depth - 1)); w++) {
-            sender.acc_left(&acc, w);
+        for (uint32_t w = 0; w < (1 << (depth - 1)); w++) {
+            sender.acc_left(&acc, &w);
             // std::cout << "[" << w << "]:\t" << acc << std::endl;
 
             io->send_block(&acc, 1);
@@ -43,7 +45,7 @@ void test_cggm(int party, NetIO* io) {
 		io->flush();
     }
     else {
-        CGGM_Recver<NetIO> recver(nullptr, depth);
+        CGGM_Recver<NetIO, 1> recver(nullptr, depth);
 
         pre_ot.choices_recver(recver.b);
         std::cout << "Receiver's index: " << recver.get_index() << std::endl;

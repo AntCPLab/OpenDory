@@ -10,7 +10,7 @@
 using namespace emp;
 using std::future;
 
-template<typename IO>
+template<typename IO, int BatchSize>
 class StreamCotReg {
 public:
 	int party, threads;
@@ -30,8 +30,8 @@ public:
 	std::vector<uint32_t> item_pos_recver;
 	GaloisFieldPacking pack;
 
-	vector<CGGM_Sender<IO>*> senders;
-	vector<CGGM_Recver<IO>*> recvers;
+	vector<CGGM_Sender<IO, BatchSize>*> senders;
+	vector<CGGM_Recver<IO, BatchSize>*> recvers;
 	int mask;
 	int ell = 32;
 	int cnt = 0;
@@ -106,18 +106,18 @@ public:
 		delete[] consist_check_VW;
 	}
 
-	void mpcot_init_sender(vector<CGGM_Sender<IO>*> &senders, OTPre<IO> *ot) {
+	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
 		for(int i = 0; i < tree_n; ++i) {
-			senders.push_back(new CGGM_Sender<IO>(netio, tree_height));
+			senders.push_back(new CGGM_Sender<IO, BatchSize>(netio, tree_height));
 			ot->choices_sender();
 		}
 		netio->flush();
 		ot->reset();
 	}
 
-	void mpcot_init_recver(vector<CGGM_Recver<IO>*> &recvers, OTPre<IO> *ot) {
+	void mpcot_init_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
 		for(int i = 0; i < tree_n; ++i) {
-			recvers.push_back(new CGGM_Recver<IO>(netio, tree_height));
+			recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
 			ot->choices_recver(recvers[i]->b);
 			item_pos_recver[i] = recvers[i]->get_index();
 		}
@@ -125,7 +125,7 @@ public:
 		ot->reset();
 	}
 
-	void exec_parallel_sender(vector<CGGM_Sender<IO>*> &senders,
+	void exec_parallel_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders,
 			OTPre<IO> *ot, block* sparse_vector) {
 		vector<future<void>> fut;
 		// Assume LPN with a regular noise distribution,
@@ -150,7 +150,7 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_parallel_recver(vector<CGGM_Recver<IO>*> &recvers,
+	void exec_parallel_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers,
 			OTPre<IO> *ot, block* sparse_vector) {
 		vector<future<void>> fut;		
 		int width = tree_n / threads;
@@ -172,7 +172,7 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_f2k_sender(CGGM_Sender<IO> *sender, OTPre<IO> *ot, 
+	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, 
 			block *ggm_tree_mem, IO *io, int i) {
 		sender->compute(Delta_f2k);
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
@@ -181,7 +181,7 @@ public:
 			sender->consistency_check_msg_gen(consist_check_VW+i);
 	}
 
-	void exec_f2k_recver(CGGM_Recver<IO> *recver, OTPre<IO> *ot,
+	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot,
 			block *ggm_tree_mem, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
 		recver->compute();
@@ -234,7 +234,7 @@ public:
 		delete ((block*)J);
 	}
 
-	void exec_rcot(block* tmp, int i, int uj, int wj) {
+	void exec_rcot(block* tmp, int i, int uj, uint32_t wj) {
 		if (party == ALICE) {
 			if (uj < i)
 				*tmp = zero_block;
@@ -242,7 +242,7 @@ public:
 				*tmp = Delta_f2k;
 			}
 			else 
-				senders[i]->acc_left(tmp, wj);
+				senders[i]->acc_left(tmp, &wj);
 		}
 		else {
 			if (uj < i || uj > i)

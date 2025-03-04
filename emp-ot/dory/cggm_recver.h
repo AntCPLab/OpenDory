@@ -7,7 +7,7 @@
 
 using namespace emp;
 
-template<typename IO>
+template<typename IO, int BatchSize = 8>
 class CGGM_Recver {
 public:
 	block *tree_traversal_stack, *half_sum;
@@ -16,7 +16,7 @@ public:
 	bool *b;
 	uint32_t choice_pos, depth, leave_n;
 	IO *io;
-	DoryCCRH *ccrh;
+	DoryCCRH<BatchSize> *ccrh;
 
 	CGGM_Recver(IO *io, uint32_t depth_in) {
 		this->io = io;
@@ -26,7 +26,7 @@ public:
 		half_sum = new block[depth-1];
 		b = new bool[depth-1];
 		path_sum = new block[depth];
-		ccrh = new DoryCCRH(zero_block);
+		ccrh = new DoryCCRH<BatchSize>(zero_block);
 		dfs_levels = new uint32_t[depth];
 	}
 
@@ -131,7 +131,7 @@ public:
 			block s[2] = {zero_block, zero_block};
 			block to_expand = s[(w >> (depth - 2 - i)) & 1] = path_sum[i];
 			for (i++; i < depth - 1; i++) {
-				ccrh->node_expand_1to2(&s[0], &to_expand);
+				ccrh->node_expand(&s[0], &s[1], &to_expand);
 				to_expand = s[0];
 				if ((w >> (depth - 2 - i)) & 1) {
 					*acc ^= s[0];
