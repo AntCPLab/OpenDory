@@ -73,7 +73,7 @@ class CGGM_Sender { public:
 				top--;
 				continue;
 			}
-			ccrh->node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
@@ -83,8 +83,28 @@ class CGGM_Sender { public:
 		}
 	}
 
+	// compute sum of all leaves with index <= w for tree `tree_idx`
+	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
+		block s[2], to_expand;
+		acc = zero_block;
+		s[0] = seed[tree_idx];
+		s[1] = delta ^ seed[tree_idx];
+		for (int i = depth - 2; i >= 0; i--) {
+			if ((w >> i) & 1) {
+				acc ^= s[0];
+				to_expand = s[1];
+			}
+			else {
+				to_expand = s[0];
+			}
+			if (i == 0) break; // don't expand beyond the last layer
+			ccrh->single_node_expand(s[0], s[1], to_expand);
+		}
+		acc ^= s[(w & 1)];
+	}
+
 	// compute sum of all leaves with index <= w
-	// [TODO] batch execution
+	// Although we can batch compute the acc efficiently, this API is not really used anywhere.
 	void acc_left(block* acc, uint32_t* w) {
 		block s[2 * BatchSize], to_expand[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
@@ -104,7 +124,7 @@ class CGGM_Sender { public:
 				}
 			}
 			if (i == 0) break; // don't expand beyond the last layer
-			ccrh->node_expand(&s[0], &s[BatchSize], to_expand);
+			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
 		}
 		for (size_t i = 0; i < BatchSize; i++)
 			acc[i] ^= s[(w[i] & 1) * BatchSize + i];

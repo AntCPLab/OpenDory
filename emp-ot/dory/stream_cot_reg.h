@@ -17,6 +17,7 @@ public:
 	int item_n, idx_max, m;
 	int tree_height, leave_n;
 	int tree_n;
+	int batch_tree_n;
 	int consist_check_cot_num;
 	bool is_malicious;
 
@@ -58,6 +59,7 @@ public:
 		this->tree_height = log_bin_sz+1;
 		this->leave_n = 1<<(this->tree_height-1);
 		this->tree_n = this->item_n;
+		this->batch_tree_n = (this->tree_n + BatchSize - 1) / BatchSize;
 
 		mask = 1;
 		while(mask < n) {
@@ -83,7 +85,7 @@ public:
 	}
 
 	void recver_init() {
-		item_pos_recver.resize(this->item_n);
+		item_pos_recver.resize(this->batch_tree_n * BatchSize);
 	}
 
 	// MPFSS F_2k
@@ -107,7 +109,7 @@ public:
 	}
 
 	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
-		for(int i = 0; i < tree_n; ++i) {
+		for(int i = 0; i < batch_tree_n; ++i) {
 			senders.push_back(new CGGM_Sender<IO, BatchSize>(netio, tree_height));
 			ot->choices_sender();
 		}
@@ -116,10 +118,10 @@ public:
 	}
 
 	void mpcot_init_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
-		for(int i = 0; i < tree_n; ++i) {
+		for(int i = 0; i < batch_tree_n; ++i) {
 			recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
 			ot->choices_recver(recvers[i]->b);
-			item_pos_recver[i] = recvers[i]->get_index();
+			memcpy(&item_pos_recver[i*BatchSize], recvers[i]->get_index(), BatchSize*sizeof(uint32_t));
 		}
 		netio->flush();
 		ot->reset();
@@ -131,7 +133,7 @@ public:
 		// Assume LPN with a regular noise distribution,
 		// the task is simply divided into t calls of SPCOT, 
 		// each with a length of n/t. Here `tree_n` is t, `leave_n` is n/t.
-		int width = tree_n / threads;
+		int width = batch_tree_n / threads;
 		int start = 0, end = width;
 		for(int i = 0; i < threads - 1; ++i) {	
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
@@ -143,7 +145,7 @@ public:
 			start = end;
 			end += width;
 		}
-		end = tree_n;
+		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
 			exec_f2k_sender(senders[i], ot, sparse_vector+i*leave_n, 
 					ios[threads - 1], i);
@@ -153,7 +155,7 @@ public:
 	void exec_parallel_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers,
 			OTPre<IO> *ot, block* sparse_vector) {
 		vector<future<void>> fut;		
-		int width = tree_n / threads;
+		int width = batch_tree_n / threads;
 		int start = 0, end = width;
 		for(int i = 0; i < threads - 1; ++i) {
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
@@ -165,7 +167,7 @@ public:
 			start = end;
 			end += width;
 		}
-		end = tree_n;
+		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
 			exec_f2k_recver(recvers[i], ot, sparse_vector+i*leave_n, 
 					ios[threads - 1], i);
@@ -189,7 +191,7 @@ public:
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
 	}
 
-	void sample_J(uint32_t** J, int ell) {
+	inline void sample_J(uint32_t** J, int ell) {
 		int n_blocks = (ell + 3) / 4;
 		block* tmp = new block[n_blocks];
 		for(int m = 0; m < n_blocks; ++m)
@@ -197,7 +199,6 @@ public:
 		AES_ecb_encrypt_blks(tmp, n_blocks, &prp.aes);
 		*J = (uint32_t*)(tmp);
 		for (int i = 0; i < ell; i++) {
-			// std::cout << "access " << i << std::endl;
 			(*J)[i] &= mask;
 			(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
 		}
@@ -216,7 +217,7 @@ public:
 			int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
 			for (int i = 0; i < tree_n; i++) {
 				block tmp;
-				exec_rcot(&tmp, i, uj, wj);
+				exec_rcot(tmp, i, uj, wj);
 				*data ^= tmp;
 			}
 		}
@@ -225,7 +226,7 @@ public:
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
 				for (int i = 0; i < tree_n; i++) {
-					choice ^= (J[x] >= (i * leave_n + recvers[i]->choice_pos));
+					choice ^= (J[x] >= (i * leave_n + recvers[i/BatchSize]->choice_pos[i%BatchSize]));
 				}
 			}
 			if (choice)
@@ -234,21 +235,21 @@ public:
 		delete ((block*)J);
 	}
 
-	void exec_rcot(block* tmp, int i, int uj, uint32_t wj) {
+	void exec_rcot(block& tmp, int i, int uj, uint32_t wj) {
 		if (party == ALICE) {
 			if (uj < i)
-				*tmp = zero_block;
+				tmp = zero_block;
 			else if (uj > i) {
-				*tmp = Delta_f2k;
+				tmp = Delta_f2k;
 			}
 			else 
-				senders[i]->acc_left(tmp, &wj);
+				senders[i]->acc_left(tmp, i % BatchSize, wj);
 		}
 		else {
 			if (uj < i || uj > i)
-				*tmp = zero_block;
+				tmp = zero_block;
 			else {
-				recvers[i]->acc_left(tmp, wj);
+				recvers[i]->acc_left(tmp, i % BatchSize, wj);
 			}
 		}
 	}

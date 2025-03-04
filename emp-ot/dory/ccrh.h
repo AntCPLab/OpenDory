@@ -32,7 +32,7 @@ class DoryCCRH { public:
 		AES_opt_key_schedule<BatchSize>(keys, scheduled_keys);
 	}
 
-	void node_expand(block* left, block* right, const block* parent) {
+	void batch_node_expand(block* left, block* right, const block* parent) {
 		block tmp[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
 			tmp[i] = left[i] = right[i] = parent[i];
@@ -43,6 +43,15 @@ class DoryCCRH { public:
 			left[i] = left[i] ^ tmp[i];
 			right[i] = right[i] ^ left[i];
 		}
+	}
+
+	void single_node_expand(block& left, block& right, const block& parent) {
+		block tmp;
+		tmp = left = right = parent;
+		left = tmp = sigma(tmp);
+		AES_ecb_encrypt_blks<1>(&tmp, &scheduled_keys[0]);
+		left = left ^ tmp;
+		right = right ^ left;
 	}
 };
 

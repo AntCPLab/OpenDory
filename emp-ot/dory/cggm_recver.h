@@ -14,7 +14,8 @@ public:
 	block *path_sum;
 	uint32_t *dfs_levels;
 	bool *b;
-	uint32_t choice_pos, depth, leave_n;
+	uint32_t choice_pos[BatchSize];
+	uint32_t depth, leave_n;
 	IO *io;
 	DoryCCRH<BatchSize> *ccrh;
 
@@ -22,10 +23,10 @@ public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(depth_in-1);
-		tree_traversal_stack = new block[depth];
-		half_sum = new block[depth-1];
-		b = new bool[depth-1];
-		path_sum = new block[depth];
+		tree_traversal_stack = new block[depth * BatchSize];
+		half_sum = new block[(depth-1) * BatchSize];
+		b = new bool[(depth-1) * BatchSize];
+		path_sum = new block[depth * BatchSize];
 		ccrh = new DoryCCRH<BatchSize>(zero_block);
 		dfs_levels = new uint32_t[depth];
 	}
@@ -39,12 +40,14 @@ public:
 		delete[] dfs_levels;
 	}
 
-	int get_index() {
-		choice_pos = 0;
+	uint32_t* get_index() {
+		memset(choice_pos, 0, BatchSize);
 		for(uint32_t i = 0; i < depth-1; ++i) {
-			choice_pos <<= 1;
-			if(!b[i])
-				choice_pos +=1;
+			for (int j = 0; j < BatchSize; j++) {
+				choice_pos[j] <<= 1;
+				if(!b[i*BatchSize + j])
+					choice_pos[j] +=1;
+			}
 		}
 		return choice_pos;
 	}
@@ -53,7 +56,7 @@ public:
 	// j: position of the secret, begins from 0
 	template<typename OT>
 	void recv_f2k(OT * ot, IO * io2, int s) {
-		ot->recv(half_sum, depth-1, io2, s);
+		ot->recv(half_sum, (depth-1) * BatchSize, io2, s);
 	}
 
 	// receive the message and reconstruct the tree
@@ -62,12 +65,17 @@ public:
 		ggm_tree_reconstruction();
 	}
 
-	void ggm_tree_reconstruction() {		
+	void ggm_tree_reconstruction() {
+		block leaves_sum[BatchSize];
 		for (int h = 1; h < depth - 1; h++)
-			path_sum[h] = zero_block;
-		tree_traversal_stack[0] = path_sum[0] = half_sum[0];
+			for (int j = 0; j < BatchSize; j++)
+				path_sum[h * BatchSize + j] = zero_block;
+		for (int j = 0; j < BatchSize; j++) {
+			tree_traversal_stack[j] = path_sum[j] = half_sum[j];
+			leaves_sum[j] = zero_block;
+		}
 		dfs_levels[0] = 0;
-		block leaves_sum = zero_block;
+		
 		int top = 0, filled_level = 0;
 		while (top >= 0) {
 			// When only one node left in stack, we are done with its corresponding level, and
@@ -75,8 +83,10 @@ public:
 			if (top == 0) {
 				if (dfs_levels[top] == filled_level + 1) {
 					// Filled in the last off-path node, and insert it into the stack
-					path_sum[dfs_levels[top]] ^= half_sum[dfs_levels[top]];
-					tree_traversal_stack[top + 1] = path_sum[dfs_levels[top]];
+					for (int j = 0; j < BatchSize; j++) {
+						path_sum[dfs_levels[top] * BatchSize + j] ^= half_sum[dfs_levels[top] * BatchSize + j];
+						tree_traversal_stack[(top + 1) * BatchSize + j] = path_sum[dfs_levels[top] * BatchSize + j];
+					}
 					dfs_levels[top + 1] = dfs_levels[top];
 					top++;
 					filled_level++;
@@ -85,60 +95,107 @@ public:
 			}
 			// We arrive at a leave, don't expand and go back to last level
 			if (dfs_levels[top] >= depth-2) {
-				leaves_sum ^= tree_traversal_stack[top];
+				for (int j = 0; j < BatchSize; j++)
+					leaves_sum[j] ^= tree_traversal_stack[top * BatchSize + j];
 				top--;
 				continue;
 			}
-			ccrh->node_expand(&tree_traversal_stack[top+1], &tree_traversal_stack[top], &tree_traversal_stack[top]);
+			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
 
-			if (b[dfs_levels[top]])
-				path_sum[dfs_levels[top]] ^= tree_traversal_stack[top-1];
-			else
-				path_sum[dfs_levels[top]] ^= tree_traversal_stack[top];
+			for (int j = 0; j < BatchSize; j++) {
+				if (b[dfs_levels[top] * BatchSize + j])
+					path_sum[dfs_levels[top] * BatchSize + j] ^= tree_traversal_stack[(top-1) * BatchSize + j];
+				else
+					path_sum[dfs_levels[top] * BatchSize + j] ^= tree_traversal_stack[top * BatchSize + j];
+			}
 		}
-		path_sum[depth - 1] = leaves_sum;
+		for (int j = 0; j < BatchSize; j++)
+			path_sum[(depth - 1) * BatchSize + j] = leaves_sum[j];
 	}
 
-	// compute sum of all leaves with index <= w
-	// [TODO] batch execution
-	void acc_left(block* acc, uint32_t w) {
-		*acc = zero_block;
-		if (w == choice_pos) {
+	// compute sum of all leaves with index <= w for tree `tree_idx`
+	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
+		acc = zero_block;
+		if (w == choice_pos[tree_idx]) {
 			for (uint32_t i = 0; i < depth - 1; i++) {
-				if (b[i] == false) {
-					*acc ^= path_sum[i];
+				if (b[i*BatchSize + tree_idx] == false) {
+					acc ^= path_sum[i*BatchSize + tree_idx];
 				}
 			}
-			*acc ^= path_sum[depth-1];
+			acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
 		}
 		else {
 			uint32_t i = 0;
 			for (i = 0; i < depth - 1; i++) {
-				if (((w >> (depth - 2 - i)) & 1) == b[i]) break; // find the first difference
-				if (!b[i]) {
-					*acc ^= path_sum[i];
+				if (((w >> (depth - 2 - i)) & 1) == b[i*BatchSize + tree_idx]) break; // find the first difference
+				if (!b[i*BatchSize + tree_idx]) {
+					acc ^= path_sum[i*BatchSize + tree_idx];
 				}
 			}
-			if (b[i]) {
-				for (uint32_t j = i + 1; j < depth - 1; j++) {
-					*acc ^= path_sum[j];
+			if (b[i*BatchSize + tree_idx]) {
+				for (uint32_t k = i + 1; k < depth - 1; k++) {
+					acc ^= path_sum[k*BatchSize + tree_idx];
 				}
-				*acc ^= path_sum[depth-1];
+				acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
 			}
 			block s[2] = {zero_block, zero_block};
-			block to_expand = s[(w >> (depth - 2 - i)) & 1] = path_sum[i];
+			block to_expand = s[(w >> (depth - 2 - i)) & 1] = path_sum[i*BatchSize + tree_idx];
 			for (i++; i < depth - 1; i++) {
-				ccrh->node_expand(&s[0], &s[1], &to_expand);
+				ccrh->single_node_expand(s[0], s[1], to_expand);
 				to_expand = s[0];
 				if ((w >> (depth - 2 - i)) & 1) {
-					*acc ^= s[0];
+					acc ^= s[0];
 					to_expand = s[1];
 				}
 			}
-			*acc ^= s[w & 1];
+			acc ^= s[w & 1];
+		}
+	}
+
+	// compute sum of all leaves with index <= w
+	// [TODO] batch execution
+	void acc_left(block* acc, uint32_t* w) {
+		// Receiver's acc is quite different from Sender's acc.
+		// Considering that different trees might expand at different locations, what can we do to optimize for batch execution?
+		for (int j = 0; j < BatchSize; j++) {
+			acc[j] = zero_block;
+			if (w[j] == choice_pos[j]) {
+				for (uint32_t i = 0; i < depth - 1; i++) {
+					if (b[i*BatchSize + j] == false) {
+						acc[j] ^= path_sum[i*BatchSize + j];
+					}
+				}
+				acc[j] ^= path_sum[(depth-1)*BatchSize + j];
+			}
+			else {
+				uint32_t i = 0;
+				for (i = 0; i < depth - 1; i++) {
+					if (((w[j] >> (depth - 2 - i)) & 1) == b[i*BatchSize + j]) break; // find the first difference
+					if (!b[i*BatchSize + j]) {
+						acc[j] ^= path_sum[i*BatchSize + j];
+					}
+				}
+				if (b[i*BatchSize + j]) {
+					for (uint32_t k = i + 1; k < depth - 1; k++) {
+						acc[j] ^= path_sum[k*BatchSize + j];
+					}
+					acc[j] ^= path_sum[(depth-1)*BatchSize + j];
+				}
+				block s[2] = {zero_block, zero_block};
+				block to_expand = s[(w[j] >> (depth - 2 - i)) & 1] = path_sum[i*BatchSize + j];
+				for (i++; i < depth - 1; i++) {
+					ccrh->single_node_expand(s[0], s[1], to_expand);
+					to_expand = s[0];
+					if ((w[j] >> (depth - 2 - i)) & 1) {
+						acc[j] ^= s[0];
+						to_expand = s[1];
+					}
+				}
+				acc[j] ^= s[w[j] & 1];
+			}
 		}
 	}
 
