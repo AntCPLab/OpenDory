@@ -23,7 +23,8 @@ public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(depth_in-1);
-		tree_traversal_stack = new block[depth * BatchSize];
+		// tree_traversal_stack = new block[depth * BatchSize];
+		tree_traversal_stack = reinterpret_cast<block*>(aligned_alloc(64, depth * BatchSize * sizeof(block)));
 		half_sum = new block[(depth-1) * BatchSize];
 		b = new bool[(depth-1) * BatchSize];
 		path_sum = new block[depth * BatchSize];
@@ -32,7 +33,8 @@ public:
 	}
 
 	~CGGM_Recver(){
-		delete[] tree_traversal_stack;
+		// delete[] tree_traversal_stack;
+		free(tree_traversal_stack);
 		delete[] half_sum;
 		delete[] b;
 		delete[] path_sum;

@@ -6,9 +6,22 @@
 namespace emp {
 
 #ifdef __AVX512F__
-template<int N>
-inline void ParaEnc(block *_blks, AES_KEY *keys) {
+typedef __m512i blockx4_t;
+typedef struct { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
+#endif
 
+#ifdef __AVX512F__
+template<int N>
+inline void ParaEnc(block *blks __attribute__((aligned(64))), AES_KEYx4_t *keys) {
+	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
+	int n_packed = N >> 2;
+	for (int i = 0; i < n_packed; ++i)
+      packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys[i]->rd_key[0]);
+	for (unsigned int j = 1; j < keys[0]->rounds; ++j)
+		for (int i = 0; i < n_packed; ++i)
+			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys[i]->rd_key[j]);
+	for (int i = 0; i < n_packed; ++i)
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i]->rd_key[keys[i]->rounds]);
 }
 #else
 template<int N>
@@ -25,11 +38,43 @@ template<int BatchSize = 8>
 class DoryCCRH { public:
 	AES_KEY scheduled_keys[BatchSize];
 	block keys[BatchSize];
+#ifdef __AVX512F__
+	AES_KEYx4_t* batch_keys;
+#endif
 
 	DoryCCRH(block key) {
 		for(int i = 0; i < BatchSize; ++i)
 			keys[i] = key;
 		AES_opt_key_schedule<BatchSize>(keys, scheduled_keys);
+#ifdef __AVX512F__
+		if (BatchSize % 4 == 0) {
+			batch_keys = new AES_KEYx4_t[BatchSize / 4];
+			for (int i = 0; i < BatchSize/4; i++) {
+				batch_keys[i].rounds = scheduled_keys[0].rounds;
+				for (int j = 0; j < 11; j++) {
+					batch_keys[i].rd_key[j] = _mm512_setzero_si512();
+					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
+						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize].rd_key[j], 0
+					);
+					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
+						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 1].rd_key[j], 1
+					);
+					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
+						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 2].rd_key[j], 2
+					);
+					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
+						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 3].rd_key[j], 3
+					);
+				}
+			}
+		}
+#endif
+	}
+
+	~DoryCCRH() {
+#ifdef __AVX512F__
+	delete[] batch_keys;
+#endif
 	}
 
 	void batch_node_expand(block* left, block* right, const block* parent) {
@@ -38,7 +83,11 @@ class DoryCCRH { public:
 			tmp[i] = left[i] = right[i] = parent[i];
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
+#ifdef __AVX512F__
+		ParaEnc<BatchSize>(tmp, batch_keys);
+#else
 		ParaEnc<BatchSize>(tmp, scheduled_keys);
+#endif
 		for(size_t i = 0; i < BatchSize; i++) {
 			left[i] = left[i] ^ tmp[i];
 			right[i] = right[i] ^ left[i];

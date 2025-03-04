@@ -31,14 +31,16 @@ class CGGM_Sender { public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
-		tree_traversal_stack = new block[depth * BatchSize];
+		// tree_traversal_stack = new block[depth * BatchSize];
+		tree_traversal_stack = reinterpret_cast<block*>(aligned_alloc(64, depth * BatchSize * sizeof(block)));
 		half_sum = new block[(depth-1) * BatchSize];
 		dfs_levels = new uint32_t[depth];
 		ccrh = new DoryCCRH<BatchSize>(zero_block);
 	}
 
 	~CGGM_Sender() {
-		delete[] tree_traversal_stack;
+		// delete[] tree_traversal_stack;
+		free(tree_traversal_stack);
 		delete[] half_sum;
 		delete[] dfs_levels;
 		delete ccrh;
