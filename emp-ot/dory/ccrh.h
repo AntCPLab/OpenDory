@@ -11,22 +11,20 @@ typedef struct { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
 #endif
 
 #ifdef __AVX512F__
+/**
+ * Caller should make sure `blks` is 64-byte aligned.
+*/
 template<int N>
-inline void ParaEnc(block *blks __attribute__((aligned(64))), AES_KEYx4_t *keys) {
+inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
 	int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
-      packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys[i]->rd_key[0]);
-	for (unsigned int j = 1; j < keys[0]->rounds; ++j)
+      packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys[i].rd_key[0]);
+	for (unsigned int j = 1; j < keys[0].rounds; ++j)
 		for (int i = 0; i < n_packed; ++i)
-			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys[i]->rd_key[j]);
+			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys[i].rd_key[j]);
 	for (int i = 0; i < n_packed; ++i)
-		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i]->rd_key[keys[i]->rounds]);
-}
-#else
-template<int N>
-inline void ParaEnc(block *blks, AES_KEY *keys) {
-	ParaEnc<N, 1>(blks, keys);
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i].rd_key[keys[i].rounds]);
 }
 #endif
 
@@ -39,7 +37,7 @@ class DoryCCRH { public:
 	AES_KEY scheduled_keys[BatchSize];
 	block keys[BatchSize];
 #ifdef __AVX512F__
-	AES_KEYx4_t* batch_keys;
+	AES_KEYx4_t* batch_keys = nullptr;
 #endif
 
 	DoryCCRH(block key) {
@@ -48,22 +46,22 @@ class DoryCCRH { public:
 		AES_opt_key_schedule<BatchSize>(keys, scheduled_keys);
 #ifdef __AVX512F__
 		if (BatchSize % 4 == 0) {
-			batch_keys = new AES_KEYx4_t[BatchSize / 4];
+			batch_keys = reinterpret_cast<AES_KEYx4_t*>(aligned_alloc(64, BatchSize / 4 * sizeof(AES_KEYx4_t)));
 			for (int i = 0; i < BatchSize/4; i++) {
 				batch_keys[i].rounds = scheduled_keys[0].rounds;
 				for (int j = 0; j < 11; j++) {
 					batch_keys[i].rd_key[j] = _mm512_setzero_si512();
-					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
-						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize].rd_key[j], 0
+					batch_keys[i].rd_key[j] = _mm512_inserti32x4(
+						batch_keys[i].rd_key[j], scheduled_keys[i*4].rd_key[j], 0
 					);
-					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
-						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 1].rd_key[j], 1
+					batch_keys[i].rd_key[j] = _mm512_inserti32x4(
+						batch_keys[i].rd_key[j], scheduled_keys[i*4 + 1].rd_key[j], 1
 					);
-					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
-						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 2].rd_key[j], 2
+					batch_keys[i].rd_key[j] = _mm512_inserti32x4(
+						batch_keys[i].rd_key[j], scheduled_keys[i*4 + 2].rd_key[j], 2
 					);
-					batch_keys[i].rd_key[j] = _mm512_inserti128_si512(
-						batch_keys[i].rd_key[j], scheduled_keys[i*BatchSize + 3].rd_key[j], 3
+					batch_keys[i].rd_key[j] = _mm512_inserti32x4(
+						batch_keys[i].rd_key[j], scheduled_keys[i*4 + 3].rd_key[j], 3
 					);
 				}
 			}
@@ -73,20 +71,26 @@ class DoryCCRH { public:
 
 	~DoryCCRH() {
 #ifdef __AVX512F__
-	delete[] batch_keys;
+	if (!batch_keys)
+		free(batch_keys);
 #endif
 	}
 
 	void batch_node_expand(block* left, block* right, const block* parent) {
-		block tmp[BatchSize];
+		alignas(64) block tmp[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
 			tmp[i] = left[i] = right[i] = parent[i];
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
 #ifdef __AVX512F__
-		ParaEnc<BatchSize>(tmp, batch_keys);
-#else
-		ParaEnc<BatchSize>(tmp, scheduled_keys);
+		if(batch_keys) {
+			ParaEnc<BatchSize>(tmp, batch_keys);
+		}
+		else {
+#endif
+			ParaEnc<BatchSize, 1>(tmp, scheduled_keys);
+#ifdef __AVX512F__
+		}
 #endif
 		for(size_t i = 0; i < BatchSize; i++) {
 			left[i] = left[i] ^ tmp[i];

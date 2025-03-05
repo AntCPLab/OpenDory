@@ -3,7 +3,7 @@
 using namespace std;
 
 int port, party;
-const static int threads = 2;
+const static int threads = 1;
 
 void test_ferret(int party, NetIO *ios[threads], int64_t num_ot) {
 	auto start = clock_start();
@@ -15,6 +15,8 @@ void test_ferret(int party, NetIO *ios[threads], int64_t num_ot) {
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	int64_t num = 1 << num_ot;
 	cout <<"Active FERRET RCOT\t"<<double(num)/test_rcot<FerretCOT<NetIO>>(ferretcot, ios[0], party, num, false)*1e6<<" OTps"<<endl;
+
+	cout << "Comm: " << ios[0]->counter / 1e6 << " MB" << endl;
 
 	// RCOT inplace
 	// The RCOTs will be generated at user buffer

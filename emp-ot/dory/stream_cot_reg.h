@@ -121,7 +121,9 @@ public:
 		for(int i = 0; i < batch_tree_n; ++i) {
 			recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
 			ot->choices_recver(recvers[i]->b);
-			memcpy(&item_pos_recver[i*BatchSize], recvers[i]->get_index(), BatchSize*sizeof(uint32_t));
+			const uint32_t* idx = recvers[i]->get_index();
+			for (int j = 0; j < BatchSize; j++)
+				item_pos_recver[i*BatchSize + j] = idx[j];
 		}
 		netio->flush();
 		ot->reset();

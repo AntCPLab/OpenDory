@@ -9,6 +9,7 @@ const static int batch_size = 8;
 void test_streamcot(int party, NetIO *ios[threads]) {
 	BaseCot<NetIO> base_cot(party, ios[0], false);
     base_cot.cot_gen_pre();
+	ios[0]->flush();
     block secret = base_cot.ot_delta;
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;

@@ -35,7 +35,7 @@ void test_cggm(int party, NetIO* io) {
 
         io->send_block(&secret, 1);
         block acc;
-        for (uint32_t w = 0; w < (1 << (depth - 1)); w++) {
+        for (uint32_t w = 0; w < (1u << (depth - 1)); w++) {
             for (uint32_t tree_idx = 0; tree_idx < batch_size; tree_idx++) {
                 sender.acc_left(acc, tree_idx, w);
                 // std::cout << "[" << w << "]:\t" << acc << std::endl;
@@ -62,7 +62,7 @@ void test_cggm(int party, NetIO* io) {
         block sender_secret;
         io->recv_block(&sender_secret, 1);
         block acc;
-        for (uint32_t w = 0; w < (1 << (depth - 1)); w++) {
+        for (uint32_t w = 0; w < (1u << (depth - 1)); w++) {
             for (uint32_t tree_idx = 0; tree_idx < batch_size; tree_idx++) {
                 recver.acc_left(acc, tree_idx, w);
                 // std::cout << "[" << w << "]:\t" << acc << std::endl;
