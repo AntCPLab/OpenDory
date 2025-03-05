@@ -1,5 +1,6 @@
 #include "emp-ot/dory/stream_cot_reg.h"
 #include "emp-ot/dory/base_cot.h"
+#include "emp-ot/dory/performance.h"
 using namespace std;
 
 int port, party;
@@ -22,7 +23,9 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
+	acc_time_log("mpcot");
 	streamcot->mpcot(&pre_ot, nullptr);
+	acc_time_log("mpcot");
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
 
@@ -47,6 +50,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 			error("wrong!\n");
 		}
 	}
+	print_profiling();
 
 	delete streamcot;
 	delete pool;

@@ -3,11 +3,12 @@
 // #include "emp-tool/utils/prp.h"
 #include "emp-tool/emp-tool.h"
 #include <stdio.h>
+#include "emp-ot/dory/performance.h"
 namespace emp {
 
 #ifdef __AVX512F__
 typedef __m512i blockx4_t;
-typedef struct { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
+typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
 #endif
 
 #ifdef __AVX512F__
@@ -15,16 +16,17 @@ typedef struct { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
  * Caller should make sure `blks` is 64-byte aligned.
 */
 template<int N>
-inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
+static inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
-	int n_packed = N >> 2;
+	const int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
       packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys[i].rd_key[0]);
-	for (unsigned int j = 1; j < keys[0].rounds; ++j)
+	
+	for (unsigned int j = 1; j < 10; ++j)
 		for (int i = 0; i < n_packed; ++i)
 			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys[i].rd_key[j]);
-	for (int i = 0; i < n_packed; ++i)
-		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i].rd_key[keys[i].rounds]);
+	for (int i = 0; i < n_packed; ++i) 
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i].rd_key[10]);
 }
 #endif
 
@@ -33,19 +35,20 @@ inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
  * Here we model f(x) = AES_{00..0}(x) as a random permutation (and thus in the RPM model)
  */
 template<int BatchSize = 8>
-class DoryCCRH { public:
+class alignas(64) DoryCCRH { public:
+#ifdef __AVX512F__
+	// AES_KEYx4_t batch_keys[(BatchSize + 3)/4];
+	AES_KEYx4_t *batch_keys = nullptr;
+#endif
 	AES_KEY scheduled_keys[BatchSize];
 	block keys[BatchSize];
-#ifdef __AVX512F__
-	AES_KEYx4_t* batch_keys = nullptr;
-#endif
 
 	DoryCCRH(block key) {
 		for(int i = 0; i < BatchSize; ++i)
 			keys[i] = key;
 		AES_opt_key_schedule<BatchSize>(keys, scheduled_keys);
 #ifdef __AVX512F__
-		if (BatchSize % 4 == 0) {
+		if ((BatchSize & 0x3) == 0) {
 			batch_keys = reinterpret_cast<AES_KEYx4_t*>(aligned_alloc(64, BatchSize / 4 * sizeof(AES_KEYx4_t)));
 			for (int i = 0; i < BatchSize/4; i++) {
 				batch_keys[i].rounds = scheduled_keys[0].rounds;
@@ -77,13 +80,16 @@ class DoryCCRH { public:
 	}
 
 	void batch_node_expand(block* left, block* right, const block* parent) {
+		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
 		alignas(64) block tmp[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
 			tmp[i] = left[i] = right[i] = parent[i];
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
+		// acc_time_log("ParaEnc");
 #ifdef __AVX512F__
-		if(batch_keys) {
+		if((BatchSize & 0x3) == 0) {
+		// if(batch_keys) { // This is slower than above
 			ParaEnc<BatchSize>(tmp, batch_keys);
 		}
 		else {
@@ -92,6 +98,7 @@ class DoryCCRH { public:
 #ifdef __AVX512F__
 		}
 #endif
+		// acc_time_log("ParaEnc");
 		for(size_t i = 0; i < BatchSize; i++) {
 			left[i] = left[i] ^ tmp[i];
 			right[i] = right[i] ^ left[i];

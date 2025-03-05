@@ -6,6 +6,7 @@
 #include "emp-ot/dory/cggm_sender.h"
 #include "emp-ot/dory/cggm_recver.h"
 #include "emp-ot/dory/preot.h"
+#include "emp-ot/dory/performance.h"
 
 using namespace emp;
 using std::future;
@@ -171,7 +172,9 @@ public:
 	}
 
 	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, IO *io, int i) {
+		acc_time_log("sender compute");
 		sender->compute(Delta_f2k);
+		acc_time_log("sender compute");
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
 		io->flush();
 		if(is_malicious)
@@ -180,7 +183,9 @@ public:
 
 	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
+		acc_time_log("recver compute");
 		recver->compute();
+		acc_time_log("recver compute");
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
 	}
