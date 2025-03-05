@@ -36,13 +36,11 @@ DoryCOT<T>::~DoryCOT() {
 	if(pre_ot != nullptr) delete pre_ot;
 	delete base_cot;
 	delete pool;
-	if(lpn_f2 != nullptr) delete lpn_f2;
 	if(mpcot != nullptr) delete mpcot;
 }
 
 template<typename T>
 void DoryCOT<T>::extend_initialization() {
-	lpn_f2 = new LpnF2<T, 10>(party, param.n, param.k, pool, io, pool->size());
 	mpcot = new MpcotReg<T>(party, threads, param.n, param.t, param.log_bin_sz, pool, ios);
 	if(is_malicious) mpcot->set_malicious();
 
@@ -56,10 +54,10 @@ void DoryCOT<T>::extend_initialization() {
 // extend f2k in detail
 template<typename T>
 void DoryCOT<T>::extend(block* ot_output, MpcotReg<T> *mpcot, OTPre<T> *preot, 
-		LpnF2<T, 10> *lpn, block *ot_input, block seed) {
+		block *ot_input, block seed) {
 	if(party == ALICE) mpcot->sender_init(Delta);
 	else mpcot->recver_init();
-	mpcot->mpcot(ot_output, preot, ot_input);
+	mpcot->bootstrap(ot_output, preot, ot_input);
 }
 
 // extend f2k (customized location)
@@ -68,7 +66,7 @@ void DoryCOT<T>::extend_f2k(block *ot_buffer) {
 	if(party == ALICE)
 	    pre_ot->send_pre(ot_pre_data, Delta);
 	else pre_ot->recv_pre(ot_pre_data);
-	extend(ot_buffer, mpcot, pre_ot, lpn_f2, ot_pre_data);
+	extend(ot_buffer, mpcot, pre_ot, ot_pre_data);
 	memcpy(ot_pre_data, ot_buffer+ot_limit, M*sizeof(block));
 	ot_used = 0;
 }
@@ -119,7 +117,6 @@ void DoryCOT<T>::setup(std::string pre_file, bool *choice, block seed) {
 		MpcotReg<T> mpcot_ini(party, threads, param.n_pre, param.t_pre, param.log_bin_sz_pre, pool, ios);
 		if(is_malicious) mpcot_ini.set_malicious();
 		OTPre<T> pre_ot_ini(ios[0], mpcot_ini.tree_height-1, mpcot_ini.tree_n);
-		LpnF2<T, 10> lpn(party, param.n_pre, param.k_pre, pool, io, pool->size());
 
 		block *pre_data_ini = new block[param.k_pre+mpcot_ini.consist_check_cot_num];
 		memset(this->ot_pre_data, 0, param.n_pre*16);
@@ -134,7 +131,7 @@ void DoryCOT<T>::setup(std::string pre_file, bool *choice, block seed) {
             base_cot->cot_gen(&pre_ot_ini, pre_ot_ini.n);
             base_cot->cot_gen(pre_data_ini, param.k_pre + mpcot_ini.consist_check_cot_num);
         }
-		extend(ot_pre_data, &mpcot_ini, &pre_ot_ini, &lpn, pre_data_ini, seed);
+		extend(ot_pre_data, &mpcot_ini, &pre_ot_ini, pre_data_ini, seed);
 		delete[] pre_data_ini;
 	}
 
@@ -241,7 +238,7 @@ int64_t DoryCOT<T>::rcot_inplace(block *ot_buffer, int64_t byte_space, block see
 		    pre_ot->send_pre(ot_pre_data, Delta);
 		else pre_ot->recv_pre(ot_pre_data);
 		if(this->is_malicious) seed = zero_block;
-		extend(pt, mpcot, pre_ot, lpn_f2, ot_pre_data, seed);
+		extend(pt, mpcot, pre_ot, ot_pre_data, seed);
 		pt += ot_limit;
 		memcpy(ot_pre_data, pt, M*sizeof(block));
 	}

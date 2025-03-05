@@ -7,7 +7,7 @@
 namespace emp {
 
 template<typename T>
-class DoryCOT: public COT<T> { 
+class DoryCOT: public COT<T> {
 public:
 	using COT<T>::io;
 	using COT<T>::Delta;
@@ -60,8 +60,6 @@ private:
 	OTPre<T> *pre_ot = nullptr;
 	ThreadPool *pool = nullptr;
 	MpcotReg<T> *mpcot = nullptr;
-	LpnF2<T, 10> *lpn_f2 = nullptr;
-
 	
 	void online_sender(block *data, int64_t length);
 
@@ -74,7 +72,7 @@ private:
 	void extend_initialization();
 
 	void extend(block* ot_output, MpcotReg<T> *mpfss, OTPre<T> *preot, 
-			LpnF2<T, 10> *lpn, block *ot_input, block seed = zero_block);
+		block *ot_input, block seed = zero_block);
 
 	void extend_f2k(block *ot_buffer);
 

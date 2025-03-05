@@ -90,7 +90,7 @@ public:
 	}
 
 	// MPFSS F_2k
-	void mpcot(OTPre<IO> * ot, block *pre_cot_data) {
+	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
 		if(party == BOB) consist_check_chi_alpha = new block[item_n];
 		consist_check_VW = new block[item_n];
 
@@ -137,7 +137,7 @@ public:
 		// each with a length of n/t. Here `tree_n` is t, `leave_n` is n/t.
 		int width = batch_tree_n / threads;
 		int start = 0, end = width;
-		for(int i = 0; i < threads - 1; ++i) {	
+		for(int i = 0; i < threads - 1; ++i) {
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
 						senders, ot](){
 				for(int i = start; i < end; ++i)

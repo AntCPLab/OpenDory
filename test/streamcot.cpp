@@ -24,7 +24,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	acc_time_log("mpcot");
-	streamcot->mpcot(&pre_ot, nullptr);
+	streamcot->bootstrap(&pre_ot, nullptr);
 	acc_time_log("mpcot");
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
