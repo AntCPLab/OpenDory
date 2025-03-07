@@ -2,7 +2,6 @@
 #define CGGM_RECVER_H__
 #include <iostream>
 #include "emp-tool/emp-tool.h"
-#include "emp-ot/emp-ot.h"
 #include "emp-ot/dory/ccrh.h"
 #include "emp-ot/dory/performance.h"
 
@@ -68,7 +67,7 @@ public:
 
 	void ggm_tree_reconstruction() {
 		block leaves_sum[BatchSize];
-		for (int h = 1; h < depth - 1; h++)
+		for (uint32_t h = 1; h < depth - 1; h++)
 			for (int j = 0; j < BatchSize; j++)
 				path_sum[h * BatchSize + j] = zero_block;
 		for (int j = 0; j < BatchSize; j++) {
@@ -77,7 +76,8 @@ public:
 		}
 		dfs_levels[0] = 0;
 		
-		int top = 0, filled_level = 0;
+		int top = 0;
+		uint32_t filled_level = 0;
 		while (top >= 0) {
 			// When only one node left in stack, we are done with its corresponding level, and
 			// it is time to calculate the path sum at this level

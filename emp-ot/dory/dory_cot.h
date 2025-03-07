@@ -1,22 +1,22 @@
 #ifndef EMP_DORY_COT_H_
 #define EMP_DORY_COT_H_
-#include "emp-ot/dory/mpcot_reg.h"
+#include "emp-ot/dory/stream_cot_reg.h"
 #include "emp-ot/dory/base_cot.h"
 #include "emp-ot/dory/constants.h"
 
 namespace emp {
 
-template<typename T>
+template<typename T, int BatchSize = 8>
 class DoryCOT: public COT<T> {
 public:
 	using COT<T>::io;
 	using COT<T>::Delta;
 
-	PrimalLPNParameter param;
+	DualLPNParameter param;
 	int64_t ot_used, ot_limit;
 
 	DoryCOT(int party, int threads, T **ios, bool malicious = false, bool run_setup = true, 
-PrimalLPNParameter param = ferret_b13, std::string pre_file="");
+DualLPNParameter param = dory_b13, std::string pre_file="");
 	
 
 	~DoryCOT();
@@ -52,14 +52,13 @@ private:
 	block one;
 
 	block * ot_pre_data = nullptr;
-	block * ot_data = nullptr;
 
 	std::string pre_ot_filename;
 
 	BaseCot<T> *base_cot = nullptr;
 	OTPre<T> *pre_ot = nullptr;
 	ThreadPool *pool = nullptr;
-	MpcotReg<T> *mpcot = nullptr;
+	StreamCotReg<T, BatchSize> *stream_cot = nullptr;
 	
 	void online_sender(block *data, int64_t length);
 
@@ -71,12 +70,12 @@ private:
 
 	void extend_initialization();
 
-	void extend(block* ot_output, MpcotReg<T> *mpfss, OTPre<T> *preot, 
-		block *ot_input, block seed = zero_block);
+	void extend_full(block* ot_output, StreamCotReg<T, BatchSize> *mpfss, OTPre<T> *preot, 
+		block *ot_input);
 
-	void extend_f2k(block *ot_buffer);
+	void extend_full(block *ot_buffer);
 
-	void extend_f2k();
+	void extend_limit(block *ot_buffer, int64_t num);
 
 	int64_t silent_ot_left();
 
@@ -85,6 +84,6 @@ private:
 	__uint128_t read_pre_data128_from_file(void* pre_loc, std::string filename);
 };
 
-#include "emp-ot/ferret/ferret_cot.hpp"
+#include "emp-ot/dory/dory_cot.hpp"
 }
 #endif// _VOLE_H_

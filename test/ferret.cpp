@@ -7,7 +7,7 @@ const static int threads = 1;
 
 void test_ferret(int party, NetIO *ios[threads], int64_t num_ot) {
 	auto start = clock_start();
-	FerretCOT<NetIO> * ferretcot = new FerretCOT<NetIO>(party, threads, ios, true, true, ferret_b13);
+	FerretCOT<NetIO> * ferretcot = new FerretCOT<NetIO>(party, threads, ios, false, true, ferret_b13);
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
 

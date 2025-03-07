@@ -35,7 +35,7 @@ static inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
  * Here we model f(x) = AES_{00..0}(x) as a random permutation (and thus in the RPM model)
  */
 template<int BatchSize = 8>
-class alignas(64) DoryCCRH { public:
+class DoryCCRH { public:
 #ifdef __AVX512F__
 	// AES_KEYx4_t batch_keys[(BatchSize + 3)/4];
 	AES_KEYx4_t *batch_keys = nullptr;

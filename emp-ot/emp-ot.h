@@ -5,3 +5,4 @@
 #include "emp-ot/iknp.h"
 
 #include "emp-ot/ferret/ferret_cot.h"
+#include "emp-ot/dory/dory_cot.h"

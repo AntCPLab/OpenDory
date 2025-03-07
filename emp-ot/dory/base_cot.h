@@ -1,7 +1,8 @@
 #ifndef COT_H__
 #define COT_H__
 
-#include "emp-ot/ferret/preot.h"
+#include "emp-ot/iknp.h"
+#include "emp-ot/dory/preot.h"
 
 template<typename IO>
 class BaseCot { public:

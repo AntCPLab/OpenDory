@@ -2,7 +2,6 @@
 #define CGGM_SENDER_H__
 #include <iostream>
 #include "emp-tool/emp-tool.h"
-#include "emp-ot/emp-ot.h"
 #include "emp-ot/dory/ccrh.h"
 #include "emp-ot/dory/performance.h"
 
@@ -19,16 +18,16 @@ class CGGM_Sender { public:
 	block *tree_traversal_stack, *half_sum;
 	uint32_t *dfs_levels;
 	IO *io;
-	int depth, leave_n;
+	uint32_t depth, leave_n;
 	PRG prg;
 	DoryCCRH<BatchSize> *ccrh;
 
-	CGGM_Sender(IO *io, int depth_in) {
+	CGGM_Sender(IO *io, uint32_t depth_in) {
 		initialization(io, depth_in);
 		prg.random_block(seed, BatchSize);
 	}
 
-	void initialization(IO *io, int depth_in) {
+	void initialization(IO *io, uint32_t depth_in) {
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
@@ -62,7 +61,7 @@ class CGGM_Sender { public:
 		for (size_t i = 0; i < BatchSize; i++) {
 			tree_traversal_stack[BatchSize + i] = half_sum[i] = seed[i];
 			tree_traversal_stack[i] = delta ^ tree_traversal_stack[BatchSize + i];
-			for (int h = 1; h < depth - 1; h++)
+			for (uint32_t h = 1; h < depth - 1; h++)
 				half_sum[h*BatchSize + i] = zero_block;
 		}
 		dfs_levels[0] = dfs_levels[1] = 0;

@@ -15,7 +15,8 @@ template<typename IO, int BatchSize>
 class StreamCotReg {
 public:
 	int party, threads;
-	int item_n, idx_max, m;
+	int item_n, m;
+	uint32_t idx_max;
 	int tree_height, leave_n;
 	int tree_n;
 	int batch_tree_n;
@@ -36,7 +37,8 @@ public:
 	vector<CGGM_Recver<IO, BatchSize>*> recvers;
 	int mask;
 	int ell = 32;
-	int cnt = 0;
+	uint32_t upper_bound;
+	uint32_t cnt;
 	PRP prp;
 	block minustwo, one;
 
@@ -61,6 +63,8 @@ public:
 		this->leave_n = 1<<(this->tree_height-1);
 		this->tree_n = this->item_n;
 		this->batch_tree_n = (this->tree_n + BatchSize - 1) / BatchSize;
+
+		this->cnt = this->upper_bound = n;
 
 		mask = 1;
 		while(mask < n) {
@@ -107,6 +111,8 @@ public:
 
 		if(party == BOB) delete[] consist_check_chi_alpha;
 		delete[] consist_check_VW;
+
+		cnt = 0;
 	}
 
 	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
@@ -190,7 +196,7 @@ public:
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
 	}
 
-	inline void sample_J(uint32_t** J, int ell) {
+	inline void sample_J(uint32_t** J, int ell, int idx) {
 		int n_blocks = (ell + 3) / 4;
 		block* tmp = new block[n_blocks];
 		for(int m = 0; m < n_blocks; ++m)
@@ -203,20 +209,55 @@ public:
 		}
 	}
 
-	void rcot(block *data, int64_t num) {
-		exec_rcot(data);
+	uint32_t silent_ot_left() {
+		return upper_bound - cnt;
 	}
 
-	void exec_rcot(block* data) {
+	void eval_full(block* data) {
+		if (cnt > 0)
+			error("Can only call eval_full when cnt == 0");
+		eval(data, upper_bound);
+	}
+
+	void eval(block *data, uint32_t num) {
+		if (cnt + num > upper_bound)
+			error("Eval more than upper limit. Please try a smaller number and bootstrap.");
+
+		vector<future<void>> fut;		
+		int width = num / threads;
+		int start = 0, end = width;
+		for(int i = 0; i < threads - 1; ++i) {
+			fut.push_back(this->pool->enqueue([this, data, start, end](){
+				exec_eval(data, start, end);
+			}));
+			start = end;
+			end += width;
+		}
+		end = num;
+		exec_eval(data, start, end);
+		for (auto & f : fut) f.get();
+
+		cnt += num;
+	}
+
+	void exec_eval(block* data, int start, int end) {
+		block* pt = data + start;
+		for (int i = start; i < end; i++) {
+			exec_eval(pt, i);
+			pt++;
+		}
+	}
+
+	void exec_eval(block* data, int idx) {
 		uint32_t* J;
-		sample_J(&J, ell);
+		sample_J(&J, ell, idx);
 		int leave_mask = (1 << (tree_height - 1)) - 1;
 		*data = zero_block;
 		for (int x = 0; x < ell; x++) {
 			int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
 			for (int i = 0; i < tree_n; i++) {
 				block tmp;
-				exec_rcot(tmp, i, uj, wj);
+				exec_eval(tmp, i, uj, wj);
 				*data ^= tmp;
 			}
 		}
@@ -234,7 +275,7 @@ public:
 		delete ((block*)J);
 	}
 
-	void exec_rcot(block& tmp, int i, int uj, uint32_t wj) {
+	void exec_eval(block& tmp, int i, int uj, uint32_t wj) {
 		if (party == ALICE) {
 			if (uj < i)
 				tmp = zero_block;

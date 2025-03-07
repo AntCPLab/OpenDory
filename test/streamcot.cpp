@@ -1,5 +1,6 @@
 #include "emp-ot/dory/stream_cot_reg.h"
 #include "emp-ot/dory/base_cot.h"
+#include "emp-ot/dory/constants.h"
 #include "emp-ot/dory/performance.h"
 using namespace std;
 
@@ -15,12 +16,12 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-    OTPre<NetIO> pre_ot(ios[0], ferret_b13.log_bin_sz * batch_size, (ferret_b13.t + batch_size - 1) / batch_size);
+    OTPre<NetIO> pre_ot(ios[0], dory_b13.log_bin_sz * batch_size, (dory_b13.t + batch_size - 1) / batch_size);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
-	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, ferret_b13.n, ferret_b13.t, ferret_b13.log_bin_sz, pool, ios);
+	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, dory_b13.n, dory_b13.t, dory_b13.log_bin_sz, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	acc_time_log("mpcot");
@@ -32,7 +33,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 	// RCOT
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	block data;
-	streamcot->rcot(&data, 1);
+	streamcot->eval(&data, 1);
 	std::cout << "data:\t" << data << std::endl;
 
 	if (party == ALICE) {

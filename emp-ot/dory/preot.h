@@ -1,7 +1,6 @@
 #ifndef _PRE_OT__
-#define  _PRE_OT__
+#define _PRE_OT__
 #include "emp-tool/emp-tool.h"
-#include "emp-ot/emp-ot.h"
 using namespace emp;
 
 template<typename IO>
