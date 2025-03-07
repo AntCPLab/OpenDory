@@ -1,6 +1,7 @@
 #ifndef _PRE_OT__
 #define _PRE_OT__
 #include "emp-tool/emp-tool.h"
+#include "emp-ot/dory/performance.h"
 using namespace emp;
 
 template<typename IO>
@@ -66,18 +67,37 @@ class OTPre { public:
 		block pad;
 		int k = s*length;
 		for (int i = 0; i < length; ++i) {
-				pad = m[i] ^ pre_data[k];
+			pad = m[i] ^ pre_data[k];
 			++k;
 			io2->send_block(&pad, 1);
 		}
+
+		// // [NOTE] The following code is sometimes faster than 
+		// // the above one, because NetIO is using TCP_NODELAY which
+		// // might send a lot of small packets without waiting, causing
+		// // a traffic jam. I have observed this problem on the `recv` side
+		// // which waits several seconds to receive a message, even though
+		// // the `send` is done in just several milliseconds.
+		// // NOTE that `pre_data` is no longer valid for future use.
+		// for (int i = 0; i < length; ++i) {
+		// 	pre_data[k] ^= m[i];
+		// 	++k;
+		// }
+		// io2->send_block(pre_data + s*length, length);
 	}
 
 	void recv(block* data, int length, IO* io2, int s) {
 		int k = s*length;
 		block pad;
+		// for (int i = 0; i < length; ++i) {
+		// 	io2->recv_block(&pad, 1);
+		// 	data[i] = pre_data[k] ^ pad;
+		// 	++k;
+		// }
+
+		io2->recv_block(data, length);
 		for (int i = 0; i < length; ++i) {
-			io2->recv_block(&pad, 1);
-			data[i] = pre_data[k] ^ pad;
+			data[i] ^= pre_data[k];
 			++k;
 		}
 	}

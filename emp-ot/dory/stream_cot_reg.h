@@ -36,7 +36,7 @@ public:
 	vector<CGGM_Sender<IO, BatchSize>*> senders;
 	vector<CGGM_Recver<IO, BatchSize>*> recvers;
 	int mask;
-	int ell = 32;
+	int ell = 16;
 	uint32_t upper_bound;
 	uint32_t cnt;
 	PRP prp;
@@ -95,8 +95,7 @@ public:
 
 	// MPFSS F_2k
 	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
-		if(party == BOB) consist_check_chi_alpha = new block[item_n];
-		consist_check_VW = new block[item_n];
+		acc_time_log("bootstrap");
 
 		if(party == ALICE) {
 			mpcot_init_sender(senders, ot);
@@ -109,10 +108,8 @@ public:
 		if(is_malicious)
 			consistency_check_f2k(pre_cot_data, tree_n);
 
-		if(party == BOB) delete[] consist_check_chi_alpha;
-		delete[] consist_check_VW;
-
 		cnt = 0;
+		acc_time_log("bootstrap");
 	}
 
 	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
@@ -178,9 +175,7 @@ public:
 	}
 
 	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, IO *io, int i) {
-		acc_time_log("sender compute");
 		sender->compute(Delta_f2k);
-		acc_time_log("sender compute");
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
 		io->flush();
 		if(is_malicious)
@@ -189,9 +184,7 @@ public:
 
 	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
-		acc_time_log("recver compute");
 		recver->compute();
-		acc_time_log("recver compute");
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
 	}
@@ -249,29 +242,72 @@ public:
 	}
 
 	void exec_eval(block* data, int idx) {
+		acc_time_log("sample");
 		uint32_t* J;
 		sample_J(&J, ell, idx);
+		acc_time_log("sample");
 		int leave_mask = (1 << (tree_height - 1)) - 1;
 		*data = zero_block;
-		for (int x = 0; x < ell; x++) {
-			int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
-			for (int i = 0; i < tree_n; i++) {
+		acc_time_log("eval");
+		if (party == ALICE) {
+			/* Unbatched impl. */
+			// for (int x = 0; x < ell; x++) {
+			// 	int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
+			// 	block tmp;
+			// 	senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+			// 	*data ^= tmp;
+			// 	if (uj & 1)
+			// 		*data ^= Delta_f2k;
+			// }
+			
+			/* Batch impl. */
+			int y;
+			bool correction = false;
+			block seed[BatchSize];
+			uint32_t w[BatchSize];
+			for (y = 0; y < ell/BatchSize; y++) {
+				for (int x = 0; x < BatchSize; x++) {
+					int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
+					seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
+					w[x] = wj;
+					correction ^= uj & 1;
+				}
+				*data ^= batch_sender_acc_left(seed, w, senders[0]->ccrh);
+			}
+			for (y = y * BatchSize; y < ell; y++) {
+				int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
 				block tmp;
-				exec_eval(tmp, i, uj, wj);
+				senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+				*data ^= tmp;
+				correction ^= uj & 1;
+			}
+			if (correction)
+				*data ^= Delta_f2k;
+		}
+		else {
+			for (int x = 0; x < ell; x++) {
+				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
+				block tmp;
+				recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
 				*data ^= tmp;
 			}
 		}
+		acc_time_log("eval");
 		*data &= minustwo;
+		acc_time_log("choice");
 		if (party == BOB) {
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
-				for (int i = 0; i < tree_n; i++) {
-					choice ^= (J[x] >= (i * leave_n + recvers[i/BatchSize]->choice_pos[i%BatchSize]));
-				}
+				// for (int i = 0; i < tree_n; i++) {
+				// 	choice ^= (J[x] >= (i * leave_n + recvers[i/BatchSize]->choice_pos[i%BatchSize]));
+				// }
+				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
+				choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
 			}
 			if (choice)
 				*data ^= one; 
 		}
+		acc_time_log("choice");
 		delete ((block*)J);
 	}
 
@@ -292,6 +328,34 @@ public:
 				recvers[i/BatchSize]->acc_left(tmp, i % BatchSize, wj);
 			}
 		}
+	}
+
+	// compute sum of all leaves with index <= w
+	// Although we can batch compute the acc efficiently, this API is not really used anywhere.
+	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+		block acc = zero_block;
+		block s[2 * BatchSize], to_expand[BatchSize];
+		for(size_t i = 0; i < BatchSize; i++) {
+			s[i] = seed[i];
+			s[BatchSize + i] = Delta_f2k ^ seed[i];
+		}
+		for (int i = tree_height - 2; i >= 0; i--) {
+
+			for (int j = 0; j < BatchSize; j++) {
+				if ((w[j] >> i) & 1) {
+					acc ^= s[j];
+					to_expand[j] = s[BatchSize + j];
+				}
+				else {
+					to_expand[j] = s[j];
+				}
+			}
+			if (i == 0) break; // don't expand beyond the last layer
+			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+		}
+		for (size_t i = 0; i < BatchSize; i++)
+			acc ^= s[(w[i] & 1) * BatchSize + i];
+		return acc;
 	}
 
 	// f2k consistency check
