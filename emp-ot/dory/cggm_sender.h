@@ -83,6 +83,38 @@ class CGGM_Sender { public:
 		}
 	}
 
+	// generate GGM tree from the top
+	void ggm_tree_gen(block* leaves_acc) {
+		for (size_t i = 0; i < BatchSize; i++) {
+			tree_traversal_stack[BatchSize + i] = seed[i];
+			tree_traversal_stack[i] = delta ^ tree_traversal_stack[BatchSize + i];
+		}
+		dfs_levels[0] = dfs_levels[1] = 0;
+
+		int next_leave_idx = 0;
+		int top = 1;
+		while (top >= 0) {
+			// We arrive at a leave, don't expand and go back to last level
+			if (dfs_levels[top] >= depth-2) {
+				for(int i = 0; i < BatchSize; i++) {
+					leaves_acc[next_leave_idx*BatchSize + i] = tree_traversal_stack[top * BatchSize + i];
+				}
+				next_leave_idx++;
+				top--;
+				continue;
+			}
+			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			dfs_levels[top] += 1;
+			dfs_levels[top+1] = dfs_levels[top];
+			top++;
+		}
+		for (int i = 1; i < leave_n; i++) {
+			for (int j = 0; j < BatchSize; j++)
+				leaves_acc[i * BatchSize + j] ^= leaves_acc[(i-1) * BatchSize + j];
+		}
+		// std::cout << "Delta: " << delta << ", last leave: " << leaves_acc[(leave_n - 1) * BatchSize] << std::endl;
+	}
+
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
 		block s[2], to_expand;

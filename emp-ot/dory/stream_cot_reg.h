@@ -7,6 +7,8 @@
 #include "emp-ot/dory/cggm_recver.h"
 #include "emp-ot/dory/preot.h"
 #include "emp-ot/dory/performance.h"
+#include <list>
+#include <utility>
 
 using namespace emp;
 using std::future;
@@ -202,6 +204,20 @@ public:
 		}
 	}
 
+	inline void sample_J(uint32_t** J, int ell, int start, int end) {
+		int n_blocks = (ell + 3) / 4;
+		block* tmp = new block[(end-start) * n_blocks];
+		for (int i = start; i < end; i++)
+			for(int m = 0; m < n_blocks; ++m)
+				tmp[i * n_blocks, m] = makeBlock(i, m);
+		AES_ecb_encrypt_blks(tmp, (end-start) * n_blocks, &prp.aes);
+		*J = (uint32_t*)(tmp);
+		for (int i = 0; i < (end-start) * n_blocks * 4; i++) {
+			(*J)[i] &= mask;
+			(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
+		}
+	}
+
 	uint32_t silent_ot_left() {
 		return upper_bound - cnt;
 	}
@@ -235,10 +251,12 @@ public:
 
 	void exec_eval(block* data, int start, int end) {
 		block* pt = data + start;
-		for (int i = start; i < end; i++) {
-			exec_eval(pt, i);
-			pt++;
-		}
+		// for (int i = start; i < end; i++) {
+		// 	exec_eval(pt, i);
+		// 	pt++;
+		// }
+
+		exec_eval_(pt, start, end);
 	}
 
 	void exec_eval(block* data, int idx) {
@@ -311,6 +329,115 @@ public:
 		delete ((block*)J);
 	}
 
+	void exec_eval_(block* data, int cnt_start, int cnt_end) {
+		acc_time_log("sample");
+		uint32_t* J;
+		sample_J(&J, ell, cnt_start, cnt_end);
+		acc_time_log("sample");
+		int length = cnt_end - cnt_start;
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		memset(data, 0, length*sizeof(block));
+		acc_time_log("eval");
+		int stride = (ell + 3) / 4 * 4;
+		std::cout << "stride: " << stride << std::endl;
+		if (party == ALICE) {
+			/* Unbatched impl. */
+			for (int y = 0; y < length; y++) {
+				for (int x = 0; x < ell; x++) {
+					int uj = J[y*stride + x] >> (tree_height - 1), wj = J[y*stride + x] & leave_mask;
+					block tmp;
+					senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[y] ^= tmp;
+					if (uj & 1)
+						data[y] ^= Delta_f2k;
+				}
+			}
+			// vector<bool> to_expand(senders.size());
+			// std::vector<std::vector<std::pair<int, int>>> lists(senders.size());
+			// acc_time_log("1st loop");
+			// for (int x = 0; x < length; x++) {
+			// 	for (int y = 0; y < ell; y++) {
+			// 		int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+			// 		to_expand[uj/BatchSize] = true;
+			// 		lists[uj/BatchSize].push_back(std::make_pair(x, y));
+			// 	}
+			// }
+			// acc_time_log("1st loop");
+			// block *buf = new block[senders[0]->leave_n * BatchSize];
+			// for (int i = 0; i < senders.size(); i++) {
+			// 	acc_time_log("acc expand");
+			// 	// if (!to_expand[i]) continue;
+			// 	senders[i]->ggm_tree_gen(buf);
+			// 	acc_time_log("acc expand");
+			// 	acc_time_log("2nd loop");
+			// 	for (std::vector<std::pair<int, int>>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
+			// 		int x = it->first, y = it->second;
+			// 		int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+			// 		assert(uj / BatchSize == i);
+			// 		data[x] ^= buf[wj * BatchSize + uj % BatchSize];
+			// 		if (uj & 1)
+			// 			data[x] ^= Delta_f2k;
+			// 	}
+			// 	acc_time_log("2nd loop");
+			// }
+			
+
+			// delete[] buf;
+			
+			// /* Batch impl. */
+			// int y;
+			// bool correction = false;
+			// block seed[BatchSize];
+			// uint32_t w[BatchSize];
+			// for (y = 0; y < ell/BatchSize; y++) {
+			// 	for (int x = 0; x < BatchSize; x++) {
+			// 		int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
+			// 		seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
+			// 		w[x] = wj;
+			// 		correction ^= uj & 1;
+			// 	}
+			// 	*data ^= batch_sender_acc_left(seed, w, senders[0]->ccrh);
+			// }
+			// for (y = y * BatchSize; y < ell; y++) {
+			// 	int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
+			// 	block tmp;
+			// 	senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+			// 	*data ^= tmp;
+			// 	correction ^= uj & 1;
+			// }
+			// if (correction)
+			// 	*data ^= Delta_f2k;
+		}
+		else {
+			for (int x = 0; x < length; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					block tmp;
+					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[x] ^= tmp;
+				}
+			}
+		}
+		acc_time_log("eval");
+		for (int x = 0; x < length; x++)
+			data[x] &= minustwo;
+		acc_time_log("choice");
+		if (party == BOB) {
+			for (int x = 0; x < length; x++) {
+				bool choice = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				}
+				if (choice)
+					data[x] ^= one; 
+			}
+		}
+		std::cout << party << ": data[0]: " << data[0] << ", data[1]: " << data[1] << std::endl;
+		acc_time_log("choice");
+		delete ((block*)J);
+	}
+
 	void exec_eval(block& tmp, int i, int uj, uint32_t wj) {
 		if (party == ALICE) {
 			if (uj < i)
@@ -331,7 +458,6 @@ public:
 	}
 
 	// compute sum of all leaves with index <= w
-	// Although we can batch compute the acc efficiently, this API is not really used anywhere.
 	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
 		block acc = zero_block;
 		block s[2 * BatchSize], to_expand[BatchSize];
@@ -339,6 +465,7 @@ public:
 			s[i] = seed[i];
 			s[BatchSize + i] = Delta_f2k ^ seed[i];
 		}
+		acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
 
 			for (int j = 0; j < BatchSize; j++) {
@@ -353,6 +480,7 @@ public:
 			if (i == 0) break; // don't expand beyond the last layer
 			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
 		}
+		acc_time_log("batch_node_expand");
 		for (size_t i = 0; i < BatchSize; i++)
 			acc ^= s[(w[i] & 1) * BatchSize + i];
 		return acc;

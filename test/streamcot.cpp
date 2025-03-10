@@ -6,7 +6,7 @@ using namespace std;
 
 int port, party;
 const static int threads = 1;
-const static int batch_size = 8;
+const static int batch_size = 16;
 
 void test_streamcot(int party, NetIO *ios[threads]) {
 	BaseCot<NetIO> base_cot(party, ios[0], false);
@@ -34,7 +34,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	block data;
 	streamcot->eval(&data, 1);
-	std::cout << "data:\t" << data << std::endl;
+	std::cout << party << ": data:\t" << data << std::endl;
 
 	if (party == ALICE) {
 		ios[0]->send_block(&secret, 1);

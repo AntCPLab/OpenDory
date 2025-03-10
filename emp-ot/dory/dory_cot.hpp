@@ -143,6 +143,7 @@ void DoryCOT<T, BatchSize>::setup(std::string pre_file, bool *choice, block seed
 		extend_full(ot_pre_data, &stream_cot_ini, &pre_ot_ini, pre_data_ini);
 		delete[] pre_data_ini;
 	}
+	std::cout << party << ": Delta: " << Delta << std::endl;
 
 	fut.get();
 }
