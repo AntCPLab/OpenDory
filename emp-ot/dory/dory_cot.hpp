@@ -83,7 +83,9 @@ void DoryCOT<T, BatchSize>::extend_limit(block *ot_buffer, int64_t num) {
 	// [TODO] Need to advance ot_pre_data
 	stream_cot->bootstrap(pre_ot, ot_pre_data);
 	stream_cot->eval(ot_pre_data, (uint32_t)M);
+	std::cout << "after eval ot_pre_data: " << M << std::endl;
 	stream_cot->eval(ot_buffer, (uint32_t)num);
+	std::cout << "after eval ot_buffer: " << num << std::endl;
 }
 
 template<typename T, int BatchSize>
