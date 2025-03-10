@@ -113,7 +113,6 @@ class CGGM_Sender { public:
 			for (int j = 0; j < BatchSize; j++)
 				leaves_acc[i * BatchSize + j] ^= leaves_acc[(i-1) * BatchSize + j];
 		}
-		// std::cout << "Delta: " << delta << ", last leave: " << leaves_acc[(leave_n - 1) * BatchSize] << std::endl;
 	}
 
 	// compute sum of all leaves with index <= w for tree `tree_idx`

@@ -350,72 +350,40 @@ public:
 		acc_time_log("eval");
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
-			/* Unbatched impl. */
-			// for (int y = 0; y < length; y++) {
-			// 	for (int x = 0; x < ell; x++) {
-			// 		int uj = J[y*stride + x] >> (tree_height - 1), wj = J[y*stride + x] & leave_mask;
-			// 		block tmp;
-			// 		senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
-			// 		data[y] ^= tmp;
-			// 		if (uj & 1)
-			// 			data[y] ^= Delta_f2k;
-			// 	}
-			// }
-			vector<bool> to_expand(senders.size());
-			std::vector<std::vector<std::pair<int, int>>> lists(senders.size());
+			vector<bool> to_expand(batch_tree_n);
+			std::vector<std::vector<std::pair<int, int>>> lists(batch_tree_n);
+			block ch[2] = {zero_block, Delta_f2k};
 			acc_time_log("1st loop");
 			for (int x = 0; x < length; x++) {
+				bool correction = false;
 				for (int y = 0; y < ell; y++) {
-					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					to_expand[uj/BatchSize] = true;
+					int uj = J[x*stride + y] >> (tree_height - 1);
+					// to_expand[uj/BatchSize] = true;
 					lists[uj/BatchSize].push_back(std::make_pair(x, y));
+					correction ^= uj & 1;
 				}
+				// if (correction)
+				// 	data[x] ^= Delta_f2k;
+				data[x] ^= ch[correction];
 			}
 			acc_time_log("1st loop");
 			block *buf = new block[senders[0]->leave_n * BatchSize];
-			for (int i = 0; i < senders.size(); i++) {
+			for (int i = 0; i < batch_tree_n; i++) {
 				acc_time_log("acc expand");
-				if (!to_expand[i]) continue;
+				if (lists[i].size() == 0) continue;
 				senders[i]->ggm_tree_gen(buf);
 				acc_time_log("acc expand");
 				acc_time_log("2nd loop");
 				for (std::vector<std::pair<int, int>>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
 					int x = it->first, y = it->second;
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					assert(uj / BatchSize == i);
 					data[x] ^= buf[wj * BatchSize + uj % BatchSize];
-					if (uj & 1)
-						data[x] ^= Delta_f2k;
+					// if (uj & 1)
+					// 	data[x] ^= Delta_f2k;
 				}
 				acc_time_log("2nd loop");
 			}
-			
-
 			delete[] buf;
-			
-			// /* Batch impl. */
-			// int y;
-			// bool correction = false;
-			// block seed[BatchSize];
-			// uint32_t w[BatchSize];
-			// for (y = 0; y < ell/BatchSize; y++) {
-			// 	for (int x = 0; x < BatchSize; x++) {
-			// 		int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
-			// 		seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
-			// 		w[x] = wj;
-			// 		correction ^= uj & 1;
-			// 	}
-			// 	*data ^= batch_sender_acc_left(seed, w, senders[0]->ccrh);
-			// }
-			// for (y = y * BatchSize; y < ell; y++) {
-			// 	int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
-			// 	block tmp;
-			// 	senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
-			// 	*data ^= tmp;
-			// 	correction ^= uj & 1;
-			// }
-			// if (correction)
-			// 	*data ^= Delta_f2k;
 		}
 		else {
 			for (int x = 0; x < length; x++) {
