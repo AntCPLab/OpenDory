@@ -76,6 +76,17 @@ public:
 
 		minustwo = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
 		one = makeBlock(0x0LL, 0x1LL);
+
+		if (party == ALICE) {
+			for(int i = 0; i < batch_tree_n; ++i) {
+				senders.push_back(new CGGM_Sender<IO, BatchSize>(netio, tree_height));
+			}
+		}
+		else {
+			for(int i = 0; i < batch_tree_n; ++i) {
+				recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
+			}
+		}
 	}
 
 	~StreamCotReg() {
@@ -116,7 +127,7 @@ public:
 
 	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
-			senders.push_back(new CGGM_Sender<IO, BatchSize>(netio, tree_height));
+			senders[i]->initialize();
 			ot->choices_sender();
 		}
 		netio->flush();
@@ -125,7 +136,6 @@ public:
 
 	void mpcot_init_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
-			recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
 			ot->choices_recver(recvers[i]->b);
 			const uint32_t* idx = recvers[i]->get_index();
 			for (int j = 0; j < BatchSize; j++)
@@ -209,7 +219,7 @@ public:
 		block* tmp = new block[(end-start) * n_blocks];
 		for (int i = start; i < end; i++)
 			for(int m = 0; m < n_blocks; ++m)
-				tmp[i * n_blocks, m] = makeBlock(i, m);
+				tmp[i * n_blocks + m] = makeBlock(i, m);
 		AES_ecb_encrypt_blks(tmp, (end-start) * n_blocks, &prp.aes);
 		*J = (uint32_t*)(tmp);
 		for (int i = 0; i < (end-start) * n_blocks * 4; i++) {
@@ -339,50 +349,49 @@ public:
 		memset(data, 0, length*sizeof(block));
 		acc_time_log("eval");
 		int stride = (ell + 3) / 4 * 4;
-		std::cout << "stride: " << stride << std::endl;
 		if (party == ALICE) {
 			/* Unbatched impl. */
-			for (int y = 0; y < length; y++) {
-				for (int x = 0; x < ell; x++) {
-					int uj = J[y*stride + x] >> (tree_height - 1), wj = J[y*stride + x] & leave_mask;
-					block tmp;
-					senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
-					data[y] ^= tmp;
-					if (uj & 1)
-						data[y] ^= Delta_f2k;
+			// for (int y = 0; y < length; y++) {
+			// 	for (int x = 0; x < ell; x++) {
+			// 		int uj = J[y*stride + x] >> (tree_height - 1), wj = J[y*stride + x] & leave_mask;
+			// 		block tmp;
+			// 		senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+			// 		data[y] ^= tmp;
+			// 		if (uj & 1)
+			// 			data[y] ^= Delta_f2k;
+			// 	}
+			// }
+			vector<bool> to_expand(senders.size());
+			std::vector<std::vector<std::pair<int, int>>> lists(senders.size());
+			acc_time_log("1st loop");
+			for (int x = 0; x < length; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					to_expand[uj/BatchSize] = true;
+					lists[uj/BatchSize].push_back(std::make_pair(x, y));
 				}
 			}
-			// vector<bool> to_expand(senders.size());
-			// std::vector<std::vector<std::pair<int, int>>> lists(senders.size());
-			// acc_time_log("1st loop");
-			// for (int x = 0; x < length; x++) {
-			// 	for (int y = 0; y < ell; y++) {
-			// 		int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-			// 		to_expand[uj/BatchSize] = true;
-			// 		lists[uj/BatchSize].push_back(std::make_pair(x, y));
-			// 	}
-			// }
-			// acc_time_log("1st loop");
-			// block *buf = new block[senders[0]->leave_n * BatchSize];
-			// for (int i = 0; i < senders.size(); i++) {
-			// 	acc_time_log("acc expand");
-			// 	// if (!to_expand[i]) continue;
-			// 	senders[i]->ggm_tree_gen(buf);
-			// 	acc_time_log("acc expand");
-			// 	acc_time_log("2nd loop");
-			// 	for (std::vector<std::pair<int, int>>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
-			// 		int x = it->first, y = it->second;
-			// 		int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-			// 		assert(uj / BatchSize == i);
-			// 		data[x] ^= buf[wj * BatchSize + uj % BatchSize];
-			// 		if (uj & 1)
-			// 			data[x] ^= Delta_f2k;
-			// 	}
-			// 	acc_time_log("2nd loop");
-			// }
+			acc_time_log("1st loop");
+			block *buf = new block[senders[0]->leave_n * BatchSize];
+			for (int i = 0; i < senders.size(); i++) {
+				acc_time_log("acc expand");
+				if (!to_expand[i]) continue;
+				senders[i]->ggm_tree_gen(buf);
+				acc_time_log("acc expand");
+				acc_time_log("2nd loop");
+				for (std::vector<std::pair<int, int>>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
+					int x = it->first, y = it->second;
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					assert(uj / BatchSize == i);
+					data[x] ^= buf[wj * BatchSize + uj % BatchSize];
+					if (uj & 1)
+						data[x] ^= Delta_f2k;
+				}
+				acc_time_log("2nd loop");
+			}
 			
 
-			// delete[] buf;
+			delete[] buf;
 			
 			// /* Batch impl. */
 			// int y;
@@ -433,7 +442,6 @@ public:
 					data[x] ^= one; 
 			}
 		}
-		std::cout << party << ": data[0]: " << data[0] << ", data[1]: " << data[1] << std::endl;
 		acc_time_log("choice");
 		delete ((block*)J);
 	}

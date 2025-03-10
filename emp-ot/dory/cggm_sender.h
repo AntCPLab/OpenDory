@@ -23,11 +23,6 @@ class CGGM_Sender { public:
 	DoryCCRH<BatchSize> *ccrh;
 
 	CGGM_Sender(IO *io, uint32_t depth_in) {
-		initialization(io, depth_in);
-		prg.random_block(seed, BatchSize);
-	}
-
-	void initialization(IO *io, uint32_t depth_in) {
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
@@ -35,6 +30,12 @@ class CGGM_Sender { public:
 		half_sum = new block[(depth-1) * BatchSize];
 		dfs_levels = new uint32_t[depth];
 		ccrh = new DoryCCRH<BatchSize>(zero_block);
+
+		initialize();
+	}
+
+	void initialize() {
+		prg.random_block(seed, BatchSize);
 	}
 
 	~CGGM_Sender() {
