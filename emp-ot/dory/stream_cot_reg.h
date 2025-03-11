@@ -357,9 +357,7 @@ public:
 		else {
 			for (int x = 0; x < ell; x++) {
 				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
-				block tmp;
-				recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
-				*data ^= tmp;
+				*data ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
 			}
 		}
 		acc_time_log("eval");
@@ -414,9 +412,7 @@ public:
 			for (int x = 0; x < BatchSize; x++) {
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					block tmp;
-					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
-					data[x] ^= tmp;
+					data[x] ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
 				}
 			}
 		}

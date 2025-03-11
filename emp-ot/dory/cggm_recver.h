@@ -130,6 +130,12 @@ public:
 		}
 	}
 
+	block acc_left(uint32_t tree_idx, uint32_t w) {
+		block acc;
+		acc_left(acc, tree_idx, w);
+		return acc;
+	}
+
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
 		acc = zero_block;
