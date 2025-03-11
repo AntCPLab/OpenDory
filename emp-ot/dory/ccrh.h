@@ -83,7 +83,7 @@ class DoryCCRH { public:
 		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
 		alignas(64) block tmp[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
-			tmp[i] = left[i] = right[i] = parent[i];
+			tmp[i] = right[i] = parent[i];
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
 		// acc_time_log("ParaEnc");
@@ -100,8 +100,8 @@ class DoryCCRH { public:
 #endif
 		// acc_time_log("ParaEnc");
 		for(size_t i = 0; i < BatchSize; i++) {
-			left[i] = left[i] ^ tmp[i];
-			right[i] = right[i] ^ left[i];
+			left[i] ^= tmp[i];
+			right[i] ^= left[i];
 		}
 	}
 

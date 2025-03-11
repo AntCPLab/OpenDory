@@ -10,8 +10,6 @@
 #include <list>
 #include <utility>
 
-static int count = 0;
-
 using namespace emp;
 using std::future;
 
@@ -311,7 +309,6 @@ public:
 
 		// exec_eval__(pt, start, end);
 		// exec_eval_(pt, start, end);
-		std::cout << "count: " << count << std::endl;
 	}
 
 	void exec_eval(block* data, int idx) {
@@ -616,7 +613,6 @@ public:
 
 	// compute sum of all leaves with index <= w
 	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
-		count += 1;
 		block acc = zero_block;
 		block s[2 * BatchSize], to_expand[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
@@ -646,7 +642,8 @@ public:
 
 	// compute sum of all leaves with index <= w
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
-		count += 1;
+		block tmp[BatchSize];
+		memset(tmp, 0, BatchSize*sizeof(block));
 		block s[2 * BatchSize], to_expand[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
 			s[i] = seed[i];
@@ -657,7 +654,7 @@ public:
 
 			for (int j = 0; j < BatchSize; j++) {
 				if ((w[j] >> i) & 1) {
-					acc[j] ^= s[j];
+					tmp[j] ^= s[j];
 					to_expand[j] = s[BatchSize + j];
 				}
 				else {
@@ -668,8 +665,10 @@ public:
 			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
 		}
 		acc_time_log("batch_node_expand");
-		for (size_t i = 0; i < BatchSize; i++)
-			acc[i] ^= s[(w[i] & 1) * BatchSize + i];
+		for (size_t i = 0; i < BatchSize; i++) {
+			tmp[i] ^= s[(w[i] & 1) * BatchSize + i];
+			acc[i] ^= tmp[i];
+		}
 	}
 
 	// f2k consistency check
