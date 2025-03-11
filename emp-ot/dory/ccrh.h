@@ -115,6 +115,79 @@ class DoryCCRH { public:
 	}
 };
 
+#ifdef __AVX512F__
+#define DORY_AES_BATCH_SIZE 16
+
+template<int N>
+void AES_ecb_encrypt_blks(block *blks, unsigned int nblks, const AES_KEYx4_t* key) {
+	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
+	const int n_packed = nblks >> 2;
+	for (int i = 0; i < n_packed; ++i)
+      packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys->rd_key[0]);
+	
+	for (unsigned int j = 1; j < 10; ++j)
+		for (int i = 0; i < n_packed; ++i)
+			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys->rd_key[j]);
+	for (int i = 0; i < n_packed; ++i) 
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys->rd_key[10]);
+}
+#endif
+
+class DoryPRP { public:
+#ifdef __AVX512F__
+	AES_KEYx4_t scheduled_key512;
+#endif
+	AES_KEY scheduled_key;
+	block key;
+	PRP prp;
+
+	DoryPRP() : DoryPRP(zero_block) {}
+
+	DoryPRP(block key) : prp(key) {
+		AES_set_encrypt_key(key, &scheduled_key);
+#ifdef __AVX512F__
+		scheduled_key512.rounds = scheduled_key.rounds;
+		for (int j = 0; j < 11; j++) {
+			scheduled_key512.rd_key[j] = _mm512_setzero_si512();
+			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 0
+			);
+			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 1
+			);
+			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 2
+			);
+			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 3
+			);
+		}
+#endif
+	}
+
+	void permute_block(block *data, int nblocks) {
+#ifdef __AVX512F__
+		if (data % 64 != 0) {
+			int skip = std::min(4 - data%64/16, nblocks);
+			AES_ecb_encrypt_blks(data, skip, &scheduled_key);
+			data += skip;
+			nblocks -= skip;
+			if (nblocks == 0)
+				return;
+		}
+		for(int i = 0; i < nblocks/DORY_AES_BATCH_SIZE; ++i) {
+			AES_ecb_encrypt_blks<DORY_AES_BATCH_SIZE>(data + i*DORY_AES_BATCH_SIZE, &scheduled_key512);
+		}
+		int remain = nblocks % DORY_AES_BATCH_SIZE;
+		AES_ecb_encrypt_blks(data + nblocks - remain, remain, &scheduled_key);
+#else
+		prp.permute_block(data, nblocks);
+#endif 
+	}
+};
+
+
+
 // /*
 //  * By default, CRH use zero_block as the AES key.
 //  * Here we model f(x) = AES_{00..0}(x) as a random permutation (and thus in the RPM model)

@@ -10,6 +10,8 @@
 #include <list>
 #include <utility>
 
+static int count = 0;
+
 using namespace emp;
 using std::future;
 
@@ -41,7 +43,7 @@ public:
 	int ell = 16;
 	uint32_t upper_bound;
 	uint32_t cnt;
-	PRP prp;
+	DoryPRP prp;
 	block minustwo, one;
 
 	/**
@@ -206,7 +208,7 @@ public:
 		block* tmp = new block[n_blocks];
 		for(int m = 0; m < n_blocks; ++m)
 			tmp[m] = makeBlock(cnt, m);
-		AES_ecb_encrypt_blks(tmp, n_blocks, &prp.aes);
+		prp.permute_block(tmp, n_blocks);
 		*J = (uint32_t*)(tmp);
 		for (int i = 0; i < ell; i++) {
 			(*J)[i] &= mask;
@@ -217,15 +219,45 @@ public:
 	inline void sample_J(uint32_t** J, int ell, int start, int end) {
 		int n_blocks = (ell + 3) / 4;
 		block* tmp = new block[(end-start) * n_blocks];
-		for (int i = start; i < end; i++)
-			for(int m = 0; m < n_blocks; ++m)
-				tmp[i * n_blocks + m] = makeBlock(i, m);
-		AES_ecb_encrypt_blks(tmp, (end-start) * n_blocks, &prp.aes);
+		acc_time_log("sample 1st loop");
+		block* pt = tmp;
+		for (int i = start; i < end; i++) {
+			for(int m = 0; m < n_blocks; ++m, pt++)
+				*pt = makeBlock(i, m);
+		}
+		acc_time_log("sample 1st loop");
+		acc_time_log("sample enc");
+		prp.permute_block(tmp, (end-start) * n_blocks);
+		acc_time_log("sample enc");
 		*J = (uint32_t*)(tmp);
+		acc_time_log("sample 2nd loop");
 		for (int i = 0; i < (end-start) * n_blocks * 4; i++) {
 			(*J)[i] &= mask;
 			(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
 		}
+		acc_time_log("sample 2nd loop");
+	}
+
+	inline void sample_J_batch(uint32_t** J, int start) {
+		int n_blocks = (ell + 3) / 4;
+		block* tmp = new block[n_blocks * BatchSize];
+		acc_time_log("sample 1st loop");
+		block* pt = tmp;
+		for (int i = start; i < start + BatchSize; i++) {
+			for(int m = 0; m < n_blocks; ++m, pt++)
+				*pt = makeBlock(i, m);
+		}
+		acc_time_log("sample 1st loop");
+		acc_time_log("sample enc");
+		prp.permute_block(tmp, BatchSize * n_blocks);
+		acc_time_log("sample enc");
+		*J = (uint32_t*)(tmp);
+		acc_time_log("sample 2nd loop");
+		for (int i = 0; i < BatchSize * n_blocks * 4; i++) {
+			(*J)[i] &= mask;
+			(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
+		}
+		acc_time_log("sample 2nd loop");
 	}
 
 	uint32_t silent_ot_left() {
@@ -260,13 +292,26 @@ public:
 	}
 
 	void exec_eval(block* data, int start, int end) {
-		block* pt = data + start;
+		// block* pt = data + start;
 		// for (int i = start; i < end; i++) {
 		// 	exec_eval(pt, i);
 		// 	pt++;
 		// }
 
-		exec_eval_(pt, start, end);
+		int length = end - start;
+		for(int i = 0; i < length/BatchSize; ++i) {
+			exec_eval_batch(data, start + i*BatchSize);
+			data += BatchSize;
+		}
+		int remain = length % BatchSize;
+		for (int i = end-remain; i < end; i++) {
+			exec_eval(data, i);
+			data++;
+		}
+
+		// exec_eval__(pt, start, end);
+		// exec_eval_(pt, start, end);
+		std::cout << "count: " << count << std::endl;
 	}
 
 	void exec_eval(block* data, int idx) {
@@ -338,6 +383,130 @@ public:
 		acc_time_log("choice");
 		delete ((block*)J);
 	}
+	
+	void exec_eval_batch(block* data, int cnt_start) {
+		acc_time_log("sample");
+		uint32_t* J;
+		sample_J_batch(&J, cnt_start);
+		acc_time_log("sample");
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		memset(data, 0, BatchSize*sizeof(block));
+		acc_time_log("eval");
+		int stride = (ell + 3) / 4 * 4;
+		if (party == ALICE) {
+			/* Batch impl. */
+			block seed[BatchSize];
+			uint32_t w[BatchSize];
+			bool correction[BatchSize];
+			memset(correction, 0, BatchSize);
+			for (int i = 0; i < ell; i++) {
+				for (int k = 0; k < BatchSize; k++) {
+					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
+					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
+					w[k] = wj;
+					correction[k] ^= uj & 1;
+				}
+				batch_sender_acc_left(data, seed, w, senders[0]->ccrh);
+			}
+			for (int k = 0; k < BatchSize; k++) {
+				if (correction[k])
+					data[k] ^= Delta_f2k;
+			}
+		}
+		else {
+			for (int x = 0; x < BatchSize; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					block tmp;
+					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[x] ^= tmp;
+				}
+			}
+		}
+		acc_time_log("eval");
+		for (int x = 0; x < BatchSize; x++)
+			data[x] &= minustwo;
+		acc_time_log("choice");
+		if (party == BOB) {
+			for (int x = 0; x < BatchSize; x++) {
+				bool choice = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				}
+				if (choice)
+					data[x] ^= one; 
+			}
+		}
+		acc_time_log("choice");
+		delete ((block*)J);
+	}
+
+	void exec_eval__(block* data, int cnt_start, int cnt_end) {
+		acc_time_log("sample");
+		uint32_t* J;
+		sample_J(&J, ell, cnt_start, cnt_end);
+		acc_time_log("sample");
+		int length = cnt_end - cnt_start;
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		memset(data, 0, length*sizeof(block));
+		acc_time_log("eval");
+		int stride = (ell + 3) / 4 * 4;
+		if (party == ALICE) {
+			/* Batch impl. */
+			block seed[BatchSize];
+			uint32_t w[BatchSize];
+			for (int i = 0; i < length; i++) {
+				int y;
+				bool correction = false;
+				for (y = 0; y < ell/BatchSize; y++) {
+					for (int x = 0; x < BatchSize; x++) {
+						int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
+						seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
+						w[x] = wj;
+						correction ^= uj & 1;
+					}
+					data[i] ^= batch_sender_acc_left(seed, w, senders[0]->ccrh);
+				}
+				for (y = y * BatchSize; y < ell; y++) {
+					int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
+					block tmp;
+					senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[i] ^= tmp;
+					correction ^= uj & 1;
+				}
+				if (correction)
+					data[i] ^= Delta_f2k;
+			}
+		}
+		else {
+			for (int x = 0; x < length; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					block tmp;
+					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[x] ^= tmp;
+				}
+			}
+		}
+		acc_time_log("eval");
+		for (int x = 0; x < length; x++)
+			data[x] &= minustwo;
+		acc_time_log("choice");
+		if (party == BOB) {
+			for (int x = 0; x < length; x++) {
+				bool choice = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				}
+				if (choice)
+					data[x] ^= one; 
+			}
+		}
+		acc_time_log("choice");
+		delete ((block*)J);
+	}
 
 	void exec_eval_(block* data, int cnt_start, int cnt_end) {
 		acc_time_log("sample");
@@ -350,22 +519,35 @@ public:
 		acc_time_log("eval");
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
-			vector<bool> to_expand(batch_tree_n);
-			std::vector<std::vector<std::pair<int, int>>> lists(batch_tree_n);
-			block ch[2] = {zero_block, Delta_f2k};
+			
 			acc_time_log("1st loop");
+			acc_time_log("summary");
+			vector<size_t> sizes(batch_tree_n, 0);
+			for (int x = 0; x < length * stride; x++) {
+				int uj = J[x] >> (tree_height - 1);
+				sizes[uj / BatchSize]++;
+			}
+			acc_time_log("summary");
+			std::vector<std::vector<uint64_t>> lists(batch_tree_n);
+			for (int i = 0; i < batch_tree_n; i++)
+				lists[i].reserve(sizes[i]);
+
+			block ch[2] = {zero_block, Delta_f2k};
+			block* data_first = data;
+			uint32_t* J_first = J;
 			for (int x = 0; x < length; x++) {
 				bool correction = false;
-				for (int y = 0; y < ell; y++) {
-					int uj = J[x*stride + y] >> (tree_height - 1);
-					// to_expand[uj/BatchSize] = true;
-					lists[uj/BatchSize].push_back(std::make_pair(x, y));
+				for (int y = 0; y < ell; y++, J++) {
+					int uj = *J >> (tree_height - 1), wj = *J & leave_mask;
+					lists[uj/BatchSize].push_back((((uint64_t)x) << 32) | (wj * BatchSize + uj % BatchSize));
 					correction ^= uj & 1;
 				}
-				// if (correction)
-				// 	data[x] ^= Delta_f2k;
-				data[x] ^= ch[correction];
+				J += stride - ell;
+				*data ^= ch[correction];
+				data++;
 			}
+			J = J_first;
+			data = data_first;
 			acc_time_log("1st loop");
 			block *buf = new block[senders[0]->leave_n * BatchSize];
 			for (int i = 0; i < batch_tree_n; i++) {
@@ -374,15 +556,14 @@ public:
 				senders[i]->ggm_tree_gen(buf);
 				acc_time_log("acc expand");
 				acc_time_log("2nd loop");
-				for (std::vector<std::pair<int, int>>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
-					int x = it->first, y = it->second;
-					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					data[x] ^= buf[wj * BatchSize + uj % BatchSize];
-					// if (uj & 1)
-					// 	data[x] ^= Delta_f2k;
+				for (std::vector<uint64_t>::iterator it = lists[i].begin(); it != lists[i].end(); ++it) {
+					int x = *it >> 32;
+					uint32_t j = *it & 0xFFFFFFFFUL;
+					data[x] ^= buf[j];
 				}
 				acc_time_log("2nd loop");
 			}
+
 			delete[] buf;
 		}
 		else {
@@ -435,6 +616,7 @@ public:
 
 	// compute sum of all leaves with index <= w
 	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+		count += 1;
 		block acc = zero_block;
 		block s[2 * BatchSize], to_expand[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
@@ -460,6 +642,34 @@ public:
 		for (size_t i = 0; i < BatchSize; i++)
 			acc ^= s[(w[i] & 1) * BatchSize + i];
 		return acc;
+	}
+
+	// compute sum of all leaves with index <= w
+	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+		count += 1;
+		block s[2 * BatchSize], to_expand[BatchSize];
+		for(size_t i = 0; i < BatchSize; i++) {
+			s[i] = seed[i];
+			s[BatchSize + i] = Delta_f2k ^ seed[i];
+		}
+		acc_time_log("batch_node_expand");
+		for (int i = tree_height - 2; i >= 0; i--) {
+
+			for (int j = 0; j < BatchSize; j++) {
+				if ((w[j] >> i) & 1) {
+					acc[j] ^= s[j];
+					to_expand[j] = s[BatchSize + j];
+				}
+				else {
+					to_expand[j] = s[j];
+				}
+			}
+			if (i == 0) break; // don't expand beyond the last layer
+			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+		}
+		acc_time_log("batch_node_expand");
+		for (size_t i = 0; i < BatchSize; i++)
+			acc[i] ^= s[(w[i] & 1) * BatchSize + i];
 	}
 
 	// f2k consistency check

@@ -117,6 +117,19 @@ public:
 			path_sum[(depth - 1) * BatchSize + j] = leaves_sum[j];
 	}
 
+	void ggm_tree_reconstruction(block *leaves_acc) {
+		for(int i = 0; i < BatchSize; i++) {
+			if (b[i]) {
+				leaves_acc[i] = zero_block;
+				leaves_acc[BatchSize + i] = path_sum[i];
+			}
+			else {
+				leaves_acc[i] = path_sum[i];
+				leaves_acc[BatchSize + i] = zero_block;
+			}
+		}
+	}
+
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
 		acc = zero_block;
