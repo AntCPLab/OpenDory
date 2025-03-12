@@ -465,6 +465,66 @@ public:
 		// delete ((block*)J);
 	}
 
+	void __eval4(block* data, int cnt_start) {
+		block J_blocks[64];
+		acc_time_log("sample");
+		uint32_t* J;
+		sample_J_batch((uint32_t*)J_blocks, cnt_start);
+		J = (uint32_t*)(&J_blocks[0]);
+		acc_time_log("sample");
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		memset(data, 0, BatchSize*sizeof(block));
+		acc_time_log("eval");
+		int stride = (ell + 3) / 4 * 4;
+		if (party == ALICE) {
+			/* Batch impl. */
+			block seed[BatchSize];
+			uint32_t w[BatchSize];
+			bool correction[BatchSize];
+			memset(correction, 0, BatchSize);
+			uint32_t* J_first = J;
+			for (int i = 0; i < ell; i++) {
+				for (int k = 0; k < BatchSize; k++) {
+					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
+					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
+					w[k] = wj;
+					correction[k] ^= uj & 1;
+				}
+				batch_sender_acc_left(data, seed, w, senders[0]->ccrh);
+			}
+			for (int k = 0; k < BatchSize; k++) {
+				if (correction[k])
+					data[k] ^= Delta_f2k;
+			}
+			J = J_first;
+		}
+		else {
+			for (int x = 0; x < BatchSize; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					data[x] ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
+				}
+			}
+		}
+		acc_time_log("eval");
+		for (int x = 0; x < BatchSize; x++)
+			data[x] &= minustwo;
+		acc_time_log("choice");
+		if (party == BOB) {
+			for (int x = 0; x < BatchSize; x++) {
+				bool choice = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				}
+				if (choice)
+					data[x] ^= one; 
+			}
+		}
+		acc_time_log("choice");
+		// delete ((block*)J);
+	}
+
 	void exec_eval__(block* data, int cnt_start, int cnt_end) {
 		acc_time_log("sample");
 		uint32_t* J;
