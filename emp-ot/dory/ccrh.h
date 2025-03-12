@@ -18,7 +18,7 @@ typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KE
 template<int N>
 static inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
-	const int n_packed = N >> 2;
+	constexpr int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
       packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys[i].rd_key[0]);
 	

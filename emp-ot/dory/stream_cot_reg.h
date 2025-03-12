@@ -366,9 +366,6 @@ public:
 		if (party == BOB) {
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
-				// for (int i = 0; i < tree_n; i++) {
-				// 	choice ^= (J[x] >= (i * leave_n + recvers[i/BatchSize]->choice_pos[i%BatchSize]));
-				// }
 				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
 				choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
 			}
@@ -637,7 +634,7 @@ public:
 	}
 
 	// compute sum of all leaves with index <= w
-	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t (&w)[BatchSize], DoryCCRH<BatchSize>* ccrh) {
 		block tmp[BatchSize];
 		memset(tmp, 0, BatchSize*sizeof(block));
 		block s[2 * BatchSize], to_expand[BatchSize];
@@ -647,7 +644,6 @@ public:
 		}
 		acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
-
 			for (int j = 0; j < BatchSize; j++) {
 				if ((w[j] >> i) & 1) {
 					tmp[j] ^= s[j];
