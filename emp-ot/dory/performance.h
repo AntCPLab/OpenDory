@@ -51,6 +51,26 @@ inline void print_profiling(const std::string& tag="") {
     }
 }
 
+static std::map<std::string, uint64_t> op_counts;
+inline void count_log(const std::string& tag, uint64_t n=1) {
+#ifdef LOGGING
+    auto& entry = op_counts[tag];
+    entry += n;
+#endif
+}
+
+inline void print_op_counts(const std::string& tag="") {
+    if (tag == "") {
+        for(const auto& e : op_counts)
+            print_op_counts(e.first);
+    }
+    else {
+        std::cout << "[Total] " << tag << ": " 
+            << op_counts[tag]
+            << std::endl;
+    }
+}
+
 inline double get_acc_time_log(const std::string& tag) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(profiling[tag]).count() * 1.0;
 }

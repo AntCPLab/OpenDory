@@ -44,6 +44,8 @@ public:
 	DoryPRP prp;
 	block minustwo, one;
 
+	DoryCCRH<DEFAULT_EXPAND_SIZE> *ccrh;
+
 	/**
 	 * Stream COT with regular LPN noise assumption, the param `n`, `t`, and `log_bin_sz` are
 	 * related as: `n = t * (2**log_bin_sz)`,
@@ -87,11 +89,14 @@ public:
 				recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
 			}
 		}
+
+		ccrh = new DoryCCRH<DEFAULT_EXPAND_SIZE>(zero_block);
 	}
 
 	~StreamCotReg() {
 		for (auto p : senders) delete p;
 		for (auto p : recvers) delete p;
+		delete ccrh;
 	}
 
 	void set_malicious() {
@@ -236,9 +241,32 @@ public:
 		acc_time_log("sample 2nd loop");
 	}
 
-	inline void sample_J_batch(uint32_t** J, int start) {
+	// inline void sample_J_batch(uint32_t** J, int start) {
+	// 	int n_blocks = (ell + 3) / 4;
+	// 	block* tmp = new block[n_blocks * BatchSize];
+	// 	acc_time_log("sample 1st loop");
+	// 	block* pt = tmp;
+	// 	for (int i = start; i < start + BatchSize; i++) {
+	// 		for(int m = 0; m < n_blocks; ++m, pt++)
+	// 			*pt = makeBlock(i, m);
+	// 	}
+	// 	acc_time_log("sample 1st loop");
+	// 	acc_time_log("sample enc");
+	// 	prp.permute_block(tmp, BatchSize * n_blocks);
+	// 	acc_time_log("sample enc");
+	// 	*J = (uint32_t*)(tmp);
+	// 	acc_time_log("sample 2nd loop");
+	// 	for (int i = 0; i < BatchSize * n_blocks * 4; i++) {
+	// 		(*J)[i] &= mask;
+	// 		(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
+	// 	}
+	// 	acc_time_log("sample 2nd loop");
+	// }
+
+	inline void sample_J_batch(uint32_t* J, int start) {
+		assert(reinterpret_cast<uintptr_t>(data) % 16 == 0);
 		int n_blocks = (ell + 3) / 4;
-		block* tmp = new block[n_blocks * BatchSize];
+		block* tmp = reinterpret_cast<block*>(J);
 		acc_time_log("sample 1st loop");
 		block* pt = tmp;
 		for (int i = start; i < start + BatchSize; i++) {
@@ -249,11 +277,10 @@ public:
 		acc_time_log("sample enc");
 		prp.permute_block(tmp, BatchSize * n_blocks);
 		acc_time_log("sample enc");
-		*J = (uint32_t*)(tmp);
 		acc_time_log("sample 2nd loop");
 		for (int i = 0; i < BatchSize * n_blocks * 4; i++) {
-			(*J)[i] &= mask;
-			(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
+			J[i] &= mask;
+			J[i] = J[i] >= idx_max? J[i]-idx_max : J[i];
 		}
 		acc_time_log("sample 2nd loop");
 	}
@@ -290,25 +317,27 @@ public:
 	}
 
 	void exec_eval(block* data, int start, int end) {
-		// block* pt = data + start;
+		block* pt = data + start;
 		// for (int i = start; i < end; i++) {
 		// 	exec_eval(pt, i);
 		// 	pt++;
 		// }
 
-		int length = end - start;
-		for(int i = 0; i < length/BatchSize; ++i) {
-			exec_eval_batch(data, start + i*BatchSize);
-			data += BatchSize;
-		}
-		int remain = length % BatchSize;
-		for (int i = end-remain; i < end; i++) {
-			exec_eval(data, i);
-			data++;
-		}
+		// int length = end - start;
+		// for(int i = 0; i < length/BatchSize; ++i) {
+		// 	exec_eval_batch(data, start + i*BatchSize);
+		// 	data += BatchSize;
+		// }
+		// int remain = length % BatchSize;
+		// for (int i = end-remain; i < end; i++) {
+		// 	exec_eval(data, i);
+		// 	data++;
+		// }
 
 		// exec_eval__(pt, start, end);
 		// exec_eval_(pt, start, end);
+
+		exec_eval_with_space(pt, start, end);
 	}
 
 	void exec_eval(block* data, int idx) {
@@ -324,7 +353,7 @@ public:
 			// for (int x = 0; x < ell; x++) {
 			// 	int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
 			// 	block tmp;
-			// 	senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+			// 	senders[uj/DEFAULT_EXPAND_SIZE]->acc_left(tmp, uj % DEFAULT_EXPAND_SIZE, wj);
 			// 	*data ^= tmp;
 			// 	if (uj & 1)
 			// 		*data ^= Delta_f2k;
@@ -333,18 +362,18 @@ public:
 			/* Batch impl. */
 			int y;
 			bool correction = false;
-			block seed[BatchSize];
-			uint32_t w[BatchSize];
-			for (y = 0; y < ell/BatchSize; y++) {
-				for (int x = 0; x < BatchSize; x++) {
-					int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
+			block seed[DEFAULT_EXPAND_SIZE];
+			uint32_t w[DEFAULT_EXPAND_SIZE];
+			for (y = 0; y < ell/DEFAULT_EXPAND_SIZE; y++) {
+				for (int x = 0; x < DEFAULT_EXPAND_SIZE; x++) {
+					int uj = J[y*DEFAULT_EXPAND_SIZE + x] >> (tree_height - 1), wj = J[y*DEFAULT_EXPAND_SIZE + x] & leave_mask;
 					seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
 					w[x] = wj;
 					correction ^= uj & 1;
 				}
-				*data ^= batch_sender_acc_left(seed, w, senders[0]->ccrh);
+				*data ^= batch_sender_acc_left(seed, w);
 			}
-			for (y = y * BatchSize; y < ell; y++) {
+			for (y = y * DEFAULT_EXPAND_SIZE; y < ell; y++) {
 				int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
 				block tmp;
 				senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
@@ -377,9 +406,11 @@ public:
 	}
 	
 	void exec_eval_batch(block* data, int cnt_start) {
+		block J_blocks[64];
 		acc_time_log("sample");
 		uint32_t* J;
-		sample_J_batch(&J, cnt_start);
+		sample_J_batch((uint32_t*)J_blocks, cnt_start);
+		J = (uint32_t*)(&J_blocks[0]);
 		acc_time_log("sample");
 		int leave_mask = (1 << (tree_height - 1)) - 1;
 		memset(data, 0, BatchSize*sizeof(block));
@@ -395,7 +426,6 @@ public:
 			for (int i = 0; i < ell; i++) {
 				for (int k = 0; k < BatchSize; k++) {
 					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
-					// int uj = *J >> (tree_height - 1), wj = *J & leave_mask;
 					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
 					w[k] = wj;
 					correction[k] ^= uj & 1;
@@ -432,7 +462,7 @@ public:
 			}
 		}
 		acc_time_log("choice");
-		delete ((block*)J);
+		// delete ((block*)J);
 	}
 
 	void exec_eval__(block* data, int cnt_start, int cnt_end) {
@@ -588,27 +618,72 @@ public:
 		delete ((block*)J);
 	}
 
-	void exec_eval(block& tmp, int i, int uj, uint32_t wj) {
+	void exec_eval_with_space(block* data, int cnt_start, int cnt_end) {
+		acc_time_log("sample");
+		uint32_t* J;
+		sample_J(&J, ell, cnt_start, cnt_end);
+		acc_time_log("sample");
+		int length = cnt_end - cnt_start;
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		memset(data, 0, length*sizeof(block));
+		acc_time_log("eval");
+		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
-			if (uj < i)
-				tmp = zero_block;
-			else if (uj > i) {
-				tmp = Delta_f2k;
+			block ch[2] = {zero_block, Delta_f2k};
+			int batch_tree_space = senders[0]->leave_n * BatchSize;
+			block *buf = new block[batch_tree_space * batch_tree_n];
+			acc_time_log("acc expand");
+			for (int i = 0; i < batch_tree_n; i++) {
+				senders[i]->ggm_tree_gen(buf + i * batch_tree_space);
 			}
-			else 
-				senders[i/BatchSize]->acc_left(tmp, i % BatchSize, wj);
+			acc_time_log("acc expand");
+			acc_time_log("compute data");
+			for (int x = 0; x < length; x++) {
+				bool correction = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x * stride + y] >> (tree_height - 1), wj = J[x * stride + y] & leave_mask;
+					int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
+					data[x] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
+					correction ^= uj & 1;
+				}
+				data[x] ^= ch[correction];
+			}
+			acc_time_log("compute data");
+
+			delete[] buf;
 		}
 		else {
-			if (uj < i || uj > i)
-				tmp = zero_block;
-			else {
-				recvers[i/BatchSize]->acc_left(tmp, i % BatchSize, wj);
+			for (int x = 0; x < length; x++) {
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					block tmp;
+					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					data[x] ^= tmp;
+				}
 			}
 		}
+		acc_time_log("eval");
+		for (int x = 0; x < length; x++)
+			data[x] &= minustwo;
+		acc_time_log("choice");
+		if (party == BOB) {
+			for (int x = 0; x < length; x++) {
+				bool choice = false;
+				for (int y = 0; y < ell; y++) {
+					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				}
+				if (choice)
+					data[x] ^= one; 
+			}
+		}
+		acc_time_log("choice");
+		delete ((block*)J);
 	}
 
+
 	// compute sum of all leaves with index <= w
-	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+	block batch_sender_acc_left(const block* seed, const uint32_t* w) {
 		// block acc = zero_block;
 		// block s[2 * BatchSize], to_expand[BatchSize];
 		// for(size_t i = 0; i < BatchSize; i++) {
@@ -637,89 +712,44 @@ public:
 		// for (size_t i = 0; i < BatchSize; i++)
 		// 	acc ^= s[(w[i] & 1) * BatchSize + i];
 		// return acc;
-		block acc[BatchSize];
-		memset(acc, 0, BatchSize*sizeof(block));
-		batch_sender_acc_left(acc, seed, w, ccrh);
-		for (int i = 1; i < BatchSize; i++)
+		block acc[DEFAULT_EXPAND_SIZE];
+		memset(acc, 0, DEFAULT_EXPAND_SIZE*sizeof(block));
+		batch_sender_acc_left(acc, seed, w);
+		for (int i = 1; i < DEFAULT_EXPAND_SIZE; i++)
 			acc[i] ^= acc[i-1];
-		return acc[BatchSize - 1];
+		return acc[DEFAULT_EXPAND_SIZE - 1];
 	}
 
-// #ifdef __GNUC__
-// 	#ifndef __clang__
-		// #pragma GCC push_options
-		// #pragma GCC optimize ("unroll-loops")
-// 	#endif
-// #endif
 	// compute sum of all leaves with index <= w
-	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
-		// block tmp[BatchSize];
-		// memset(tmp, 0, BatchSize*sizeof(block));
-		block s[2 * BatchSize], to_expand[BatchSize];
-		for(size_t i = 0; i < BatchSize; i++) {
+	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
+		block s[2 * DEFAULT_EXPAND_SIZE], to_expand[DEFAULT_EXPAND_SIZE];
+		for(size_t i = 0; i < DEFAULT_EXPAND_SIZE; i++) {
 			s[i] = seed[i];
-			s[BatchSize + i] = Delta_f2k ^ seed[i];
+			s[DEFAULT_EXPAND_SIZE + i] = Delta_f2k ^ seed[i];
 		}
-		acc_time_log("batch_node_expand");
+		// acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
-			if (i==tree_height-2) acc_time_log("loop");
-			for (int j = 0; j < BatchSize; j++) {
+			// if (i==tree_height-2) acc_time_log("loop");
+			for (int j = 0; j < DEFAULT_EXPAND_SIZE; j++) {
 				if ((w[j] >> i) & 1) {
 					acc[j] ^= s[j];
-					to_expand[j] = s[BatchSize + j];
+					to_expand[j] = s[DEFAULT_EXPAND_SIZE + j];
 				}
 				else {
 					to_expand[j] = s[j];
 				}
 			}
-			if (i==tree_height-2) acc_time_log("loop");
+			// if (i==tree_height-2) acc_time_log("loop");
 			if (i == 0) break; // don't expand beyond the last layer
-			if (i==tree_height-2) acc_time_log("exact");
-			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
-			if (i==tree_height-2) acc_time_log("exact");
+			// if (i==tree_height-2) acc_time_log("exact");
+			ccrh->batch_node_expand(&s[0], &s[DEFAULT_EXPAND_SIZE], to_expand);
+			// if (i==tree_height-2) acc_time_log("exact");
 		}
-		acc_time_log("batch_node_expand");
-		for (size_t i = 0; i < BatchSize; i++) {
-			acc[i] ^= s[(w[i] & 1) * BatchSize + i];
-			// tmp[i] ^= s[(w[i] & 1) * BatchSize + i];
-			// acc[i] ^= tmp[i];
+		// acc_time_log("batch_node_expand");
+		for (size_t i = 0; i < DEFAULT_EXPAND_SIZE; i++) {
+			acc[i] ^= s[(w[i] & 1) * DEFAULT_EXPAND_SIZE + i];
 		}
-		// return tmp;
-
-		// block acc = zero_block;
-		// block s[2 * BatchSize], to_expand[BatchSize];
-		// for(size_t i = 0; i < BatchSize; i++) {
-		// 	s[i] = seed[i];
-		// 	s[BatchSize + i] = Delta_f2k ^ seed[i];
-		// }
-		// acc_time_log("batch_node_expand");
-		// for (int i = tree_height - 2; i >= 0; i--) {
-		// 	if (i==tree_height-2) acc_time_log("loop");
-		// 	for (int j = 0; j < BatchSize; j++) {
-		// 		if ((w[j] >> i) & 1) {
-		// 			acc ^= s[j];
-		// 			to_expand[j] = s[BatchSize + j];
-		// 		}
-		// 		else {
-		// 			to_expand[j] = s[j];
-		// 		}
-		// 	}
-		// 	if (i==tree_height-2) acc_time_log("loop");
-		// 	if (i == 0) break; // don't expand beyond the last layer
-		// 	if (i==tree_height-2) acc_time_log("exact");
-		// 	ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
-		// 	if (i==tree_height-2) acc_time_log("exact");
-		// }
-		// acc_time_log("batch_node_expand");
-		// for (size_t i = 0; i < BatchSize; i++)
-		// 	acc ^= s[(w[i] & 1) * BatchSize + i];
-		// return acc;
 	}
-// #ifdef __GNUC_
-// 	#ifndef __clang___
-		// #pragma GCC pop_options
-// 	#endif
-// #endif
 
 
 	// f2k consistency check

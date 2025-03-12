@@ -34,22 +34,66 @@ static inline void ParaEnc(block *blks, const AES_KEYx4_t *keys) {
 #endif
 
 #ifdef __AVX512F__
-#define DORY_AES_BATCH_SIZE 16
+#define DORY_AES_BATCH_SIZE 4
+
+// template<int N>
+// static inline void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
+// 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
+// 	constexpr int n_packed = N >> 2;
+// 	for (int i = 0; i < n_packed; ++i)
+//       packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
+	
+// 	for (unsigned int j = 1; j < 10; ++j)
+// 		for (int i = 0; i < n_packed; ++i)
+// 			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
+// 	for (int i = 0; i < n_packed; ++i) 
+// 		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
+// }
+
+static inline void aes_enc_4(block *blks, const AES_KEYx4_t* key) {
+	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
+	*packed_blks = _mm512_xor_si512(*packed_blks, key->rd_key[0]);
+	for (unsigned int j = 1; j < 10; ++j)
+		*packed_blks = _mm512_aesenc_epi128(*packed_blks, key->rd_key[j]);
+	*packed_blks = _mm512_aesenclast_epi128(*packed_blks, key->rd_key[10]);
+}
 
 template<int N>
 static inline void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
-	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
 	constexpr int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
-      packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
-	
-	for (unsigned int j = 1; j < 10; ++j)
-		for (int i = 0; i < n_packed; ++i)
-			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
-	for (int i = 0; i < n_packed; ++i) 
-		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
+    	aes_enc_4(blks + i * 4, key);
 }
+
+static inline void AES_ecb_encrypt_blks(block *data, int nblocks, const AES_KEYx4_t* key) {
+	assert(nblocks % DORY_AES_BATCH_SIZE == 0);
+	for(int i = 0; i < nblocks/DORY_AES_BATCH_SIZE; ++i) {
+		AES_ecb_encrypt_blks<DORY_AES_BATCH_SIZE>(data + i*DORY_AES_BATCH_SIZE, key);
+	}
+}
+
+static inline void aes_key_to_aes_keyx4(AES_KEYx4_t* out_key, const AES_KEY* key) {
+	out_key->rounds = key->rounds;
+	for (int j = 0; j < 11; j++) {
+		out_key->rd_key[j] = _mm512_setzero_si512();
+		out_key->rd_key[j] = _mm512_inserti32x4(
+			out_key->rd_key[j], key->rd_key[j], 0
+		);
+		out_key->rd_key[j] = _mm512_inserti32x4(
+			out_key->rd_key[j], key->rd_key[j], 1
+		);
+		out_key->rd_key[j] = _mm512_inserti32x4(
+			out_key->rd_key[j], key->rd_key[j], 2
+		);
+		out_key->rd_key[j] = _mm512_inserti32x4(
+			out_key->rd_key[j], key->rd_key[j], 3
+		);
+	}
+}
+
 #endif
+
+#define DEFAULT_EXPAND_SIZE 16
 
 /*
  * By default, CRH use zero_block as the AES key.
@@ -101,6 +145,7 @@ class DoryCCRH { public:
 	}
 
 	void batch_node_expand(block* left, block* right, const block* parent) {
+		count_log("aes", BatchSize);
 		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
 		alignas(64) block tmp[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
@@ -127,7 +172,33 @@ class DoryCCRH { public:
 		}
 	}
 
+	void node_expand_4to8(block* left, block* right, const block* parent) {
+		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
+		alignas(64) block tmp[4];
+		for(size_t i = 0; i < 4; i++) {
+			tmp[i] = right[i] = parent[i];
+			left[i] = tmp[i] = sigma(tmp[i]);
+		}
+#ifdef __AVX512F__
+		if((BatchSize & 0x3) == 0) {
+		// if(batch_keys) { // This is slower than above
+			ParaEnc<BatchSize>(tmp, batch_keys);
+			// AES_ecb_encrypt_blks<4>(tmp, &batch_keys[0]);
+		}
+		else {
+#endif
+			ParaEnc<4, 1>(tmp, scheduled_keys);
+#ifdef __AVX512F__
+		}
+#endif
+		for(size_t i = 0; i < 4; i++) {
+			left[i] ^= tmp[i];
+			right[i] ^= left[i];
+		}
+	}
+
 	void single_node_expand(block& left, block& right, const block& parent) {
+		count_log("aes", 1);
 		block tmp;
 		tmp = left = right = parent;
 		left = tmp = sigma(tmp);
@@ -179,6 +250,7 @@ class DoryPRP { public:
 	}
 
 	void permute_block(block *data, int nblocks) {
+		count_log("aes", nblocks);
 #ifdef __AVX512F__
 		if (reinterpret_cast<uintptr_t>(data) % 64 != 0) {
 			int skip = std::min(static_cast<int>(4 - reinterpret_cast<uintptr_t>(data)%64/16), nblocks);

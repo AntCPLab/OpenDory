@@ -59,6 +59,7 @@ void DoryCOT<T, BatchSize>::extend_full(block* ot_output, StreamCotReg<T, BatchS
 	else stream_cot->recver_init();
 	stream_cot->bootstrap(preot, ot_input);
 	stream_cot->eval_full(ot_output);
+	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int BatchSize>
@@ -69,6 +70,7 @@ void DoryCOT<T, BatchSize>::extend_full(block *ot_buffer) {
 	// [TODO] Need to advance ot_pre_data
 	extend_full(ot_buffer, stream_cot, pre_ot, ot_pre_data);
 	memcpy(ot_pre_data, ot_buffer + ot_limit, M*sizeof(block));
+	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int BatchSize>
@@ -85,6 +87,7 @@ void DoryCOT<T, BatchSize>::extend_limit(block *ot_buffer, int64_t num) {
 	stream_cot->bootstrap(pre_ot, ot_pre_data);
 	stream_cot->eval(ot_pre_data, (uint32_t)M);
 	stream_cot->eval(ot_buffer, (uint32_t)num);
+	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int BatchSize>

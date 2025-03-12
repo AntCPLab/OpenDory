@@ -28,6 +28,7 @@ void test_dory(int party, NetIO *ios[threads], int64_t num_ot) {
 	delete dorycot;
 
 	print_profiling();
+	print_op_counts();
 }
 
 int main(int argc, char** argv) {
