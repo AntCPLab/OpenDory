@@ -618,6 +618,31 @@ public:
 		delete ((block*)J);
 	}
 
+	void __compute4(block* data, block* buf, int i) {
+		int leave_mask = (1 << (tree_height - 1)) - 1;
+		int batch_tree_space = senders[0]->leave_n * BatchSize;
+		constexpr int d = 10; // [TODO] This is just copied from Ferret, not correct for Dory.
+		block tmp[d];
+		for(int m = 0; m < d; ++m)
+			tmp[m] = makeBlock(i, m);
+		prp.permute_block(tmp, d);
+		uint32_t* r = (uint32_t*)(tmp);
+		block ch[2] = {zero_block, Delta_f2k};
+		for (int m = 0; m < 4; m++) {
+			bool correction = false;
+			for (int y = 0; y < d; y++) {
+				int index = *r & mask;
+				index = index >= idx_max? index-idx_max : index;
+				int uj = index >> (tree_height - 1), wj = index & leave_mask;
+				++r;
+				int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
+				data[i + m] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
+				correction ^= uj & 1;
+			}
+			data[i + m] ^= ch[correction];
+		}
+	}
+
 	void exec_eval_with_space(block* data, int cnt_start, int cnt_end) {
 		acc_time_log("sample");
 		uint32_t* J;
@@ -638,15 +663,18 @@ public:
 			}
 			acc_time_log("acc expand");
 			acc_time_log("compute data");
-			for (int x = 0; x < length; x++) {
-				bool correction = false;
-				for (int y = 0; y < ell; y++) {
-					int uj = J[x * stride + y] >> (tree_height - 1), wj = J[x * stride + y] & leave_mask;
-					int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
-					data[x] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
-					correction ^= uj & 1;
-				}
-				data[x] ^= ch[correction];
+			// for (int x = 0; x < length; x++) {
+			// 	bool correction = false;
+			// 	for (int y = 0; y < ell; y++) {
+			// 		int uj = J[x * stride + y] >> (tree_height - 1), wj = J[x * stride + y] & leave_mask;
+			// 		int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
+			// 		data[x] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
+			// 		correction ^= uj & 1;
+			// 	}
+			// 	data[x] ^= ch[correction];
+			// }
+			for (int x = 0; x < length-4; x+=4) {
+				__compute4(data, buf, x);
 			}
 			acc_time_log("compute data");
 
