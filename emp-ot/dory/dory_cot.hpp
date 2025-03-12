@@ -14,6 +14,7 @@ DoryCOT<T, BatchSize>::DoryCOT(int party, int threads, T **ios,
 
 	this->extend_initialized = false;
 
+
 	if(run_setup) {
 		if(party == ALICE) {
 			PRG prg;

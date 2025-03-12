@@ -19,7 +19,7 @@ typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KE
  * Caller should make sure `blks` is 64-byte aligned.
 */
 template<int N>
-static inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
+static inline void ParaEnc(block *blks, const AES_KEYx4_t *keys) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
 	constexpr int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
@@ -30,6 +30,24 @@ static inline void ParaEnc(block *blks, AES_KEYx4_t *keys) {
 			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys[i].rd_key[j]);
 	for (int i = 0; i < n_packed; ++i) 
 		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i].rd_key[10]);
+}
+#endif
+
+#ifdef __AVX512F__
+#define DORY_AES_BATCH_SIZE 16
+
+template<int N>
+static inline void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
+	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
+	constexpr int n_packed = N >> 2;
+	for (int i = 0; i < n_packed; ++i)
+      packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
+	
+	for (unsigned int j = 1; j < 10; ++j)
+		for (int i = 0; i < n_packed; ++i)
+			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
+	for (int i = 0; i < n_packed; ++i) 
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
 }
 #endif
 
@@ -93,7 +111,8 @@ class DoryCCRH { public:
 #ifdef __AVX512F__
 		if((BatchSize & 0x3) == 0) {
 		// if(batch_keys) { // This is slower than above
-			ParaEnc<BatchSize>(tmp, batch_keys);
+			// ParaEnc<BatchSize>(tmp, batch_keys);
+			AES_ecb_encrypt_blks<BatchSize>(tmp, &batch_keys[0]);
 		}
 		else {
 #endif
@@ -118,23 +137,6 @@ class DoryCCRH { public:
 	}
 };
 
-#ifdef __AVX512F__
-#define DORY_AES_BATCH_SIZE 16
-
-template<int N>
-void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
-	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
-	constexpr int n_packed = N >> 2;
-	for (int i = 0; i < n_packed; ++i)
-      packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
-	
-	for (unsigned int j = 1; j < 10; ++j)
-		for (int i = 0; i < n_packed; ++i)
-			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
-	for (int i = 0; i < n_packed; ++i) 
-		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
-}
-#endif
 
 class DoryPRP { public:
 #ifdef __AVX512F__

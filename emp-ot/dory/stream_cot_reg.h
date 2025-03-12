@@ -391,9 +391,11 @@ public:
 			uint32_t w[BatchSize];
 			bool correction[BatchSize];
 			memset(correction, 0, BatchSize);
+			uint32_t* J_first = J;
 			for (int i = 0; i < ell; i++) {
 				for (int k = 0; k < BatchSize; k++) {
 					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
+					// int uj = *J >> (tree_height - 1), wj = *J & leave_mask;
 					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
 					w[k] = wj;
 					correction[k] ^= uj & 1;
@@ -404,6 +406,7 @@ public:
 				if (correction[k])
 					data[k] ^= Delta_f2k;
 			}
+			J = J_first;
 		}
 		else {
 			for (int x = 0; x < BatchSize; x++) {
@@ -606,37 +609,52 @@ public:
 
 	// compute sum of all leaves with index <= w
 	block batch_sender_acc_left(const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
-		block acc = zero_block;
-		block s[2 * BatchSize], to_expand[BatchSize];
-		for(size_t i = 0; i < BatchSize; i++) {
-			s[i] = seed[i];
-			s[BatchSize + i] = Delta_f2k ^ seed[i];
-		}
-		acc_time_log("batch_node_expand");
-		for (int i = tree_height - 2; i >= 0; i--) {
-
-			for (int j = 0; j < BatchSize; j++) {
-				if ((w[j] >> i) & 1) {
-					acc ^= s[j];
-					to_expand[j] = s[BatchSize + j];
-				}
-				else {
-					to_expand[j] = s[j];
-				}
-			}
-			if (i == 0) break; // don't expand beyond the last layer
-			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
-		}
-		acc_time_log("batch_node_expand");
-		for (size_t i = 0; i < BatchSize; i++)
-			acc ^= s[(w[i] & 1) * BatchSize + i];
-		return acc;
+		// block acc = zero_block;
+		// block s[2 * BatchSize], to_expand[BatchSize];
+		// for(size_t i = 0; i < BatchSize; i++) {
+		// 	s[i] = seed[i];
+		// 	s[BatchSize + i] = Delta_f2k ^ seed[i];
+		// }
+		// acc_time_log("batch_node_expand");
+		// for (int i = tree_height - 2; i >= 0; i--) {
+		// 	if (i==tree_height-2) acc_time_log("loop");
+		// 	for (int j = 0; j < BatchSize; j++) {
+		// 		if ((w[j] >> i) & 1) {
+		// 			acc ^= s[j];
+		// 			to_expand[j] = s[BatchSize + j];
+		// 		}
+		// 		else {
+		// 			to_expand[j] = s[j];
+		// 		}
+		// 	}
+		// 	if (i==tree_height-2) acc_time_log("loop");
+		// 	if (i == 0) break; // don't expand beyond the last layer
+		// 	if (i==tree_height-2) acc_time_log("exact");
+		// 	ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+		// 	if (i==tree_height-2) acc_time_log("exact");
+		// }
+		// acc_time_log("batch_node_expand");
+		// for (size_t i = 0; i < BatchSize; i++)
+		// 	acc ^= s[(w[i] & 1) * BatchSize + i];
+		// return acc;
+		block acc[BatchSize];
+		memset(acc, 0, BatchSize*sizeof(block));
+		batch_sender_acc_left(acc, seed, w, ccrh);
+		for (int i = 1; i < BatchSize; i++)
+			acc[i] ^= acc[i-1];
+		return acc[BatchSize - 1];
 	}
 
+// #ifdef __GNUC__
+// 	#ifndef __clang__
+		// #pragma GCC push_options
+		// #pragma GCC optimize ("unroll-loops")
+// 	#endif
+// #endif
 	// compute sum of all leaves with index <= w
-	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t (&w)[BatchSize], DoryCCRH<BatchSize>* ccrh) {
-		block tmp[BatchSize];
-		memset(tmp, 0, BatchSize*sizeof(block));
+	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w, DoryCCRH<BatchSize>* ccrh) {
+		// block tmp[BatchSize];
+		// memset(tmp, 0, BatchSize*sizeof(block));
 		block s[2 * BatchSize], to_expand[BatchSize];
 		for(size_t i = 0; i < BatchSize; i++) {
 			s[i] = seed[i];
@@ -644,24 +662,65 @@ public:
 		}
 		acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
+			if (i==tree_height-2) acc_time_log("loop");
 			for (int j = 0; j < BatchSize; j++) {
 				if ((w[j] >> i) & 1) {
-					tmp[j] ^= s[j];
+					acc[j] ^= s[j];
 					to_expand[j] = s[BatchSize + j];
 				}
 				else {
 					to_expand[j] = s[j];
 				}
 			}
+			if (i==tree_height-2) acc_time_log("loop");
 			if (i == 0) break; // don't expand beyond the last layer
+			if (i==tree_height-2) acc_time_log("exact");
 			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+			if (i==tree_height-2) acc_time_log("exact");
 		}
 		acc_time_log("batch_node_expand");
 		for (size_t i = 0; i < BatchSize; i++) {
-			tmp[i] ^= s[(w[i] & 1) * BatchSize + i];
-			acc[i] ^= tmp[i];
+			acc[i] ^= s[(w[i] & 1) * BatchSize + i];
+			// tmp[i] ^= s[(w[i] & 1) * BatchSize + i];
+			// acc[i] ^= tmp[i];
 		}
+		// return tmp;
+
+		// block acc = zero_block;
+		// block s[2 * BatchSize], to_expand[BatchSize];
+		// for(size_t i = 0; i < BatchSize; i++) {
+		// 	s[i] = seed[i];
+		// 	s[BatchSize + i] = Delta_f2k ^ seed[i];
+		// }
+		// acc_time_log("batch_node_expand");
+		// for (int i = tree_height - 2; i >= 0; i--) {
+		// 	if (i==tree_height-2) acc_time_log("loop");
+		// 	for (int j = 0; j < BatchSize; j++) {
+		// 		if ((w[j] >> i) & 1) {
+		// 			acc ^= s[j];
+		// 			to_expand[j] = s[BatchSize + j];
+		// 		}
+		// 		else {
+		// 			to_expand[j] = s[j];
+		// 		}
+		// 	}
+		// 	if (i==tree_height-2) acc_time_log("loop");
+		// 	if (i == 0) break; // don't expand beyond the last layer
+		// 	if (i==tree_height-2) acc_time_log("exact");
+		// 	ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+		// 	if (i==tree_height-2) acc_time_log("exact");
+		// }
+		// acc_time_log("batch_node_expand");
+		// for (size_t i = 0; i < BatchSize; i++)
+		// 	acc ^= s[(w[i] & 1) * BatchSize + i];
+		// return acc;
 	}
+// #ifdef __GNUC_
+// 	#ifndef __clang___
+		// #pragma GCC pop_options
+// 	#endif
+// #endif
+
 
 	// f2k consistency check
 	void consistency_check_f2k(block *pre_cot_data, int num) {
