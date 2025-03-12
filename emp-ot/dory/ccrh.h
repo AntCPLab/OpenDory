@@ -4,10 +4,13 @@
 #include "emp-tool/emp-tool.h"
 #include <stdio.h>
 #include "emp-ot/dory/performance.h"
+#include <cstdint>
 namespace emp {
 
 #ifdef __AVX512F__
 typedef __m512i blockx4_t;
+// NOTE: any use of this struct should make sure the memory allocation is 64-byte aligned, otherwise there will be
+// a segmentation fault. The `alignas(64)` doesn't really guarantee this.
 typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
 #endif
 
@@ -119,23 +122,23 @@ class DoryCCRH { public:
 #define DORY_AES_BATCH_SIZE 16
 
 template<int N>
-void AES_ecb_encrypt_blks(block *blks, unsigned int nblks, const AES_KEYx4_t* key) {
+void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
-	const int n_packed = nblks >> 2;
+	constexpr int n_packed = N >> 2;
 	for (int i = 0; i < n_packed; ++i)
-      packed_blks[i] = _mm512_xor_si512(packed_blks[i], keys->rd_key[0]);
+      packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
 	
 	for (unsigned int j = 1; j < 10; ++j)
 		for (int i = 0; i < n_packed; ++i)
-			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], keys->rd_key[j]);
+			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
 	for (int i = 0; i < n_packed; ++i) 
-		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys->rd_key[10]);
+		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
 }
 #endif
 
 class DoryPRP { public:
 #ifdef __AVX512F__
-	AES_KEYx4_t scheduled_key512;
+	AES_KEYx4_t* scheduled_key512;
 #endif
 	AES_KEY scheduled_key;
 	block key;
@@ -146,29 +149,37 @@ class DoryPRP { public:
 	DoryPRP(block key) : prp(key) {
 		AES_set_encrypt_key(key, &scheduled_key);
 #ifdef __AVX512F__
-		scheduled_key512.rounds = scheduled_key.rounds;
+		scheduled_key512 = reinterpret_cast<AES_KEYx4_t*>(aligned_alloc(64, sizeof(AES_KEYx4_t)));
+		scheduled_key512->rounds = scheduled_key.rounds;
 		for (int j = 0; j < 11; j++) {
-			scheduled_key512.rd_key[j] = _mm512_setzero_si512();
-			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
-				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 0
+			scheduled_key512->rd_key[j] = _mm512_setzero_si512();
+			scheduled_key512->rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512->rd_key[j], scheduled_key.rd_key[j], 0
 			);
-			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
-				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 1
+			scheduled_key512->rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512->rd_key[j], scheduled_key.rd_key[j], 1
 			);
-			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
-				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 2
+			scheduled_key512->rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512->rd_key[j], scheduled_key.rd_key[j], 2
 			);
-			scheduled_key512.rd_key[j] = _mm512_inserti32x4(
-				scheduled_key512.rd_key[j], scheduled_key.rd_key[j], 3
+			scheduled_key512->rd_key[j] = _mm512_inserti32x4(
+				scheduled_key512->rd_key[j], scheduled_key.rd_key[j], 3
 			);
 		}
 #endif
 	}
 
+	~DoryPRP() {
+#ifdef __AVX512F__
+	if (!scheduled_key512)
+		free(scheduled_key512);
+#endif
+	}
+
 	void permute_block(block *data, int nblocks) {
 #ifdef __AVX512F__
-		if (data % 64 != 0) {
-			int skip = std::min(4 - data%64/16, nblocks);
+		if (reinterpret_cast<uintptr_t>(data) % 64 != 0) {
+			int skip = std::min(static_cast<int>(4 - reinterpret_cast<uintptr_t>(data)%64/16), nblocks);
 			AES_ecb_encrypt_blks(data, skip, &scheduled_key);
 			data += skip;
 			nblocks -= skip;
@@ -176,7 +187,7 @@ class DoryPRP { public:
 				return;
 		}
 		for(int i = 0; i < nblocks/DORY_AES_BATCH_SIZE; ++i) {
-			AES_ecb_encrypt_blks<DORY_AES_BATCH_SIZE>(data + i*DORY_AES_BATCH_SIZE, &scheduled_key512);
+			AES_ecb_encrypt_blks<DORY_AES_BATCH_SIZE>(data + i*DORY_AES_BATCH_SIZE, scheduled_key512);
 		}
 		int remain = nblocks % DORY_AES_BATCH_SIZE;
 		AES_ecb_encrypt_blks(data + nblocks - remain, remain, &scheduled_key);
