@@ -100,6 +100,7 @@ static inline void aes_key_to_aes_keyx4(AES_KEYx4_t* out_key, const AES_KEY* key
  * Here we model f(x) = AES_{00..0}(x) as a random permutation (and thus in the RPM model)
  */
 class DoryCCRH { public:
+	// The maximum number of blocks to be expanded once.
 	constexpr static int MAX_BATCH_SIZE = 16;
 #ifdef __AVX512F__
 	// AES_KEYx4_t batch_keys[(MAX_BATCH_SIZE + 3)/4];
@@ -142,6 +143,10 @@ class DoryCCRH { public:
 #endif
 	}
 
+	/**
+	 * `N` should be smaller than `MAX_BATCH_SIZE`.
+	 * If we want to benefit from AVX512, `N` should be a multiple of 4.
+	*/
 	template<int N>
 	void batch_node_expand(block* left, block* right, const block* parent) {
 		count_log("aes", N);
