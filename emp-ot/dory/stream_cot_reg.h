@@ -16,6 +16,7 @@ using std::future;
 template<typename IO, int BatchSize>
 class StreamCotReg {
 public:
+	constexpr static int EVAL_SIZE = 8;
 	int party, threads;
 	int item_n, m;
 	uint32_t idx_max;
@@ -43,6 +44,7 @@ public:
 	uint32_t cnt;
 	DoryPRP prp;
 	block minustwo, one;
+
 
 	DoryCCRH<DEFAULT_EXPAND_SIZE> *ccrh;
 
@@ -317,7 +319,7 @@ public:
 	}
 
 	void exec_eval(block* data, int start, int end) {
-		block* pt = data + start;
+		// block* pt = data + start;
 		// for (int i = start; i < end; i++) {
 		// 	exec_eval(pt, i);
 		// 	pt++;
@@ -337,7 +339,15 @@ public:
 		// exec_eval__(pt, start, end);
 		// exec_eval_(pt, start, end);
 
-		exec_eval_with_space(pt, start, end);
+		// exec_eval_with_space(pt, start, end);
+
+		int i = start;
+		for(; i < end-EVAL_SIZE; i+=EVAL_SIZE) {
+			__eval4(data, i);
+		}
+		for (; i < end; i++) {
+			exec_eval(data, i);
+		}
 	}
 
 	void exec_eval(block* data, int idx) {
@@ -465,64 +475,78 @@ public:
 		// delete ((block*)J);
 	}
 
-	void __eval4(block* data, int cnt_start) {
-		block J_blocks[64];
-		acc_time_log("sample");
-		uint32_t* J;
-		sample_J_batch((uint32_t*)J_blocks, cnt_start);
-		J = (uint32_t*)(&J_blocks[0]);
-		acc_time_log("sample");
+	void __eval4(block* data, int i) {
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		memset(data, 0, BatchSize*sizeof(block));
+		constexpr int d = 10; // [TODO] This is just copied from Ferret, not correct for Dory.
+		acc_time_log("sample");
+		constexpr int nblks = d * EVAL_SIZE / 4;
+		block tmp[nblks];
+		for(int m = 0; m < nblks; ++m)
+			tmp[m] = makeBlock(cnt+i, m);
+		prp.permute_block(tmp, nblks);
+		acc_time_log("sample");
+		uint32_t* r = (uint32_t*)(tmp);
+		block ch[2] = {zero_block, Delta_f2k};
 		acc_time_log("eval");
-		int stride = (ell + 3) / 4 * 4;
+		memset(data+i, 0, EVAL_SIZE*sizeof(block));
 		if (party == ALICE) {
-			/* Batch impl. */
-			block seed[BatchSize];
-			uint32_t w[BatchSize];
-			bool correction[BatchSize];
-			memset(correction, 0, BatchSize);
-			uint32_t* J_first = J;
-			for (int i = 0; i < ell; i++) {
-				for (int k = 0; k < BatchSize; k++) {
-					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
-					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
-					w[k] = wj;
-					correction[k] ^= uj & 1;
+			block seed[EVAL_SIZE];
+			uint32_t w[EVAL_SIZE];
+			bool correction[EVAL_SIZE];
+			memset(correction, 0, EVAL_SIZE);
+			for (int y = 0; y < d; y++) {
+				for (int m = 0; m < EVAL_SIZE; m++) {
+					int index = *r & mask;
+					index = index >= idx_max? index-idx_max : index;
+					int uj = index >> (tree_height - 1), wj = index & leave_mask;
+					++r;
+					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					seed[m] = senders[batch_tree_idx]->seed[internal_tree_idx];
+					w[m] = wj;
+					correction[m] ^= uj & 1;
 				}
-				batch_sender_acc_left(data, seed, w, senders[0]->ccrh);
+				batch_sender_acc_left<EVAL_SIZE>(data + i, seed, w);
 			}
-			for (int k = 0; k < BatchSize; k++) {
-				if (correction[k])
-					data[k] ^= Delta_f2k;
+			for (int m = 0; m < EVAL_SIZE; m++) {
+				data[i+m] ^= ch[correction[m]];
 			}
-			J = J_first;
 		}
 		else {
-			for (int x = 0; x < BatchSize; x++) {
-				for (int y = 0; y < ell; y++) {
-					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					data[x] ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
+			for (int y = 0; y < d; y++) {
+				for (int m = 0; m < EVAL_SIZE; m++) {
+					int index = *r & mask;
+					index = index >= idx_max? index-idx_max : index;
+					int uj = index >> (tree_height - 1), wj = index & leave_mask;
+					++r;
+					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					data[i+m] ^= recvers[batch_tree_idx]->acc_left(internal_tree_idx, wj);
 				}
 			}
 		}
 		acc_time_log("eval");
-		for (int x = 0; x < BatchSize; x++)
-			data[x] &= minustwo;
+		for (int x = 0; x < EVAL_SIZE; x++)
+			data[i+x] &= minustwo;
 		acc_time_log("choice");
 		if (party == BOB) {
-			for (int x = 0; x < BatchSize; x++) {
-				bool choice = false;
-				for (int y = 0; y < ell; y++) {
-					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+			r = (uint32_t*)(tmp);
+			bool choices[EVAL_SIZE];
+			memset(choices, 0, EVAL_SIZE);
+			for (int y = 0; y < d; y++) {
+				for (int m = 0; m < EVAL_SIZE; m++) {
+					int index = *r & mask;
+					index = index >= idx_max? index-idx_max : index;
+					int uj = index >> (tree_height - 1), wj = index & leave_mask;
+					++r;
+					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					choices[m] ^= ((uj & 1) ^ (wj >= recvers[batch_tree_idx]->choice_pos[internal_tree_idx]));
 				}
-				if (choice)
-					data[x] ^= one; 
+			}
+			for (int m = 0; m < EVAL_SIZE; m++) {
+				if (choices[m])
+					data[i+m] ^= one;
 			}
 		}
 		acc_time_log("choice");
-		// delete ((block*)J);
 	}
 
 	void exec_eval__(block* data, int cnt_start, int cnt_end) {
@@ -836,6 +860,38 @@ public:
 		// acc_time_log("batch_node_expand");
 		for (size_t i = 0; i < DEFAULT_EXPAND_SIZE; i++) {
 			acc[i] ^= s[(w[i] & 1) * DEFAULT_EXPAND_SIZE + i];
+		}
+	}
+
+	// compute sum of all leaves with index <= w
+	template<int S>
+	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
+		block s[2 * S], to_expand[S];
+		for(size_t i = 0; i < S; i++) {
+			s[i] = seed[i];
+			s[S + i] = Delta_f2k ^ seed[i];
+		}
+		// acc_time_log("batch_node_expand");
+		for (int i = tree_height - 2; i >= 0; i--) {
+			// if (i==tree_height-2) acc_time_log("loop");
+			for (int j = 0; j < S; j++) {
+				if ((w[j] >> i) & 1) {
+					acc[j] ^= s[j];
+					to_expand[j] = s[S + j];
+				}
+				else {
+					to_expand[j] = s[j];
+				}
+			}
+			// if (i==tree_height-2) acc_time_log("loop");
+			if (i == 0) break; // don't expand beyond the last layer
+			// if (i==tree_height-2) acc_time_log("exact");
+			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
+			// if (i==tree_height-2) acc_time_log("exact");
+		}
+		// acc_time_log("batch_node_expand");
+		for (size_t i = 0; i < S; i++) {
+			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
 	}
 

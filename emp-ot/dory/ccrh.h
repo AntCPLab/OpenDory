@@ -144,6 +144,33 @@ class DoryCCRH { public:
 #endif
 	}
 
+	template<int N>
+	void batch_node_expand(block* left, block* right, const block* parent) {
+		count_log("aes", N);
+		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
+		alignas(64) block tmp[N];
+		for(size_t i = 0; i < N; i++) {
+			tmp[i] = right[i] = parent[i];
+			left[i] = tmp[i] = sigma(tmp[i]);
+		}
+#ifdef __AVX512F__
+		if((N & 0x3) == 0) {
+		// if(batch_keys) { // This is slower than above
+			// ParaEnc<N>(tmp, batch_keys);
+			AES_ecb_encrypt_blks<N>(tmp, &batch_keys[0]);
+		}
+		else {
+#endif
+			ParaEnc<N, 1>(tmp, scheduled_keys);
+#ifdef __AVX512F__
+		}
+#endif
+		for(size_t i = 0; i < N; i++) {
+			left[i] ^= tmp[i];
+			right[i] ^= left[i];
+		}
+	}
+
 	void batch_node_expand(block* left, block* right, const block* parent) {
 		count_log("aes", BatchSize);
 		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.

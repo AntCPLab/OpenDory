@@ -31,21 +31,22 @@ int main(int argc, char** argv) {
 	AES_ecb_encrypt_blks(nn, 1<<n, key512);
 	cout << "V-AES Throughput:\t" << (double)(1<<n) / time_from(t1) * 1e6 <<"\tBlocks/s"<<endl;
 
-	AES_KEYx4_t *key512s = reinterpret_cast<AES_KEYx4_t*>(aligned_alloc(64, sizeof(AES_KEYx4_t)*4));
-	for (int i = 0; i < 4; i++)
+	const int batch = 16;
+
+	AES_KEYx4_t *key512s = reinterpret_cast<AES_KEYx4_t*>(aligned_alloc(64, sizeof(AES_KEYx4_t)*batch/4));
+	for (int i = 0; i < batch/4; i++)
 		aes_key_to_aes_keyx4(&key512s[i], &scheduled_key);
 
 	auto t2 = clock_start();
-	for (int i = 0; i < (1<<n)/16; i++) {
-		ParaEnc<16>(nn+i*16, key512s);
+	for (int i = 0; i < (1<<n)/batch; i++) {
+		ParaEnc<batch>(nn+i*batch, key512s);
 	}
 	cout << "V-AES ParaEnc Throughput:\t" << (double)(1<<n) / time_from(t2) * 1e6 <<"\tBlocks/s"<<endl;
 
 	auto t3 = clock_start();
 	AES_ecb_encrypt_blks(nn, 1<<n, &scheduled_key);
 	cout << "AES Throughput:\t" << (double)(1<<n) / time_from(t3) * 1e6 <<"\tBlocks/s"<<endl;
-
-	const int batch = 8;
+	
 	block keys[batch] = {zero_block, zero_block, zero_block, zero_block};
 	memset(keys, 0, sizeof(keys));
 	AES_KEY scheduled_keys[batch];
