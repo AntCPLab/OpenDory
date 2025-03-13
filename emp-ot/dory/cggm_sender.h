@@ -20,7 +20,7 @@ class CGGM_Sender { public:
 	IO *io;
 	uint32_t depth, leave_n;
 	PRG prg;
-	DoryCCRH<BatchSize> *ccrh;
+	DoryCCRH *ccrh;
 
 	CGGM_Sender(IO *io, uint32_t depth_in) {
 		this->io = io;
@@ -29,7 +29,7 @@ class CGGM_Sender { public:
 		tree_traversal_stack = new block[depth * BatchSize];
 		half_sum = new block[(depth-1) * BatchSize];
 		dfs_levels = new uint32_t[depth];
-		ccrh = new DoryCCRH<BatchSize>(zero_block);
+		ccrh = new DoryCCRH(zero_block);
 
 		initialize();
 	}
@@ -74,7 +74,7 @@ class CGGM_Sender { public:
 				top--;
 				continue;
 			}
-			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand<BatchSize>(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
@@ -104,7 +104,7 @@ class CGGM_Sender { public:
 				top--;
 				continue;
 			}
-			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand<BatchSize>(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
@@ -156,7 +156,7 @@ class CGGM_Sender { public:
 				}
 			}
 			if (i == 0) break; // don't expand beyond the last layer
-			ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+			ccrh->batch_node_expand<BatchSize>(&s[0], &s[BatchSize], to_expand);
 		}
 		for (size_t i = 0; i < BatchSize; i++)
 			acc[i] ^= s[(w[i] & 1) * BatchSize + i];

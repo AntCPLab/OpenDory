@@ -17,7 +17,7 @@ public:
 	uint32_t choice_pos[BatchSize];
 	uint32_t depth, leave_n;
 	IO *io;
-	DoryCCRH<BatchSize> *ccrh;
+	DoryCCRH *ccrh;
 
 	CGGM_Recver(IO *io, uint32_t depth_in) {
 		this->io = io;
@@ -27,7 +27,7 @@ public:
 		half_sum = new block[(depth-1) * BatchSize];
 		b = new bool[(depth-1) * BatchSize];
 		path_sum = new block[depth * BatchSize];
-		ccrh = new DoryCCRH<BatchSize>(zero_block);
+		ccrh = new DoryCCRH(zero_block);
 		dfs_levels = new uint32_t[depth];
 	}
 
@@ -101,7 +101,7 @@ public:
 				top--;
 				continue;
 			}
-			ccrh->batch_node_expand(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand<BatchSize>(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
