@@ -325,6 +325,14 @@ public:
 		// 	pt++;
 		// }
 
+		int i = start;
+		for(; i < end-EVAL_SIZE; i+=EVAL_SIZE) {
+			__eval4(data, i);
+		}
+		for (; i < end; i++) {
+			exec_eval(data, i);
+		}
+
 		// int length = end - start;
 		// for(int i = 0; i < length/BatchSize; ++i) {
 		// 	exec_eval_batch(data, start + i*BatchSize);
@@ -341,13 +349,7 @@ public:
 
 		// exec_eval_with_space(pt, start, end);
 
-		int i = start;
-		for(; i < end-EVAL_SIZE; i+=EVAL_SIZE) {
-			__eval4(data, i);
-		}
-		for (; i < end; i++) {
-			exec_eval(data, i);
-		}
+
 	}
 
 	void exec_eval(block* data, int idx) {
