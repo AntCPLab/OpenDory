@@ -14,6 +14,7 @@ public:
 	block *path_sum;
 	uint32_t *dfs_levels;
 	bool *b;
+	// block choice_acc[BatchSize];
 	uint32_t choice_pos[BatchSize];
 	uint32_t depth, leave_n;
 	IO *io;
@@ -113,8 +114,18 @@ public:
 					path_sum[dfs_levels[top] * BatchSize + j] ^= tree_traversal_stack[top * BatchSize + j];
 			}
 		}
-		for (int j = 0; j < BatchSize; j++)
+		for (int j = 0; j < BatchSize; j++) {
 			path_sum[(depth - 1) * BatchSize + j] = leaves_sum[j];
+
+			// // pre-compute the acc for the choice position
+			// choice_acc[j] = zero_block;
+			// for (uint32_t i = 0; i < depth - 1; i++) {
+			// 	if (b[i*BatchSize + j] == false) {
+			// 		choice_acc[j] ^= path_sum[i*BatchSize + j];
+			// 	}
+			// }
+			// choice_acc[j] ^= path_sum[(depth-1)*BatchSize + j];
+		}
 	}
 
 	void ggm_tree_reconstruction(block *leaves_acc) {
@@ -136,6 +147,46 @@ public:
 		return acc;
 	}
 
+	// // compute sum of all leaves with index <= w for tree `tree_idx`
+	// void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
+	// 	acc = zero_block;
+	// 	if (w == choice_pos[tree_idx]) {
+	// 		for (uint32_t i = 0; i < depth - 1; i++) {
+	// 			if (b[i*BatchSize + tree_idx] == false) {
+	// 				acc ^= path_sum[i*BatchSize + tree_idx];
+	// 			}
+	// 		}
+	// 		acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
+	// 		// acc = choice_acc[tree_idx];
+	// 	}
+	// 	else {
+	// 		uint32_t i = 0;
+	// 		for (i = 0; i < depth - 1; i++) {
+	// 			if (((w >> (depth - 2 - i)) & 1) == b[i*BatchSize + tree_idx]) break; // find the first difference
+	// 			if (!b[i*BatchSize + tree_idx]) {
+	// 				acc ^= path_sum[i*BatchSize + tree_idx];
+	// 			}
+	// 		}
+	// 		if (b[i*BatchSize + tree_idx]) {
+	// 			for (uint32_t k = i + 1; k < depth - 1; k++) {
+	// 				acc ^= path_sum[k*BatchSize + tree_idx];
+	// 			}
+	// 			acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
+	// 		}
+	// 		block s[2] = {zero_block, zero_block};
+	// 		block to_expand = s[(w >> (depth - 2 - i)) & 1] = path_sum[i*BatchSize + tree_idx];
+	// 		for (i++; i < depth - 1; i++) {
+	// 			ccrh->single_node_expand(s[0], s[1], to_expand);
+	// 			to_expand = s[0];
+	// 			if ((w >> (depth - 2 - i)) & 1) {
+	// 				acc ^= s[0];
+	// 				to_expand = s[1];
+	// 			}
+	// 		}
+	// 		acc ^= s[w & 1];
+	// 	}
+	// }
+
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
 		acc = zero_block;
@@ -148,30 +199,27 @@ public:
 			acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
 		}
 		else {
+			bool direction = w < choice_pos[tree_idx];
 			uint32_t i = 0;
 			for (i = 0; i < depth - 1; i++) {
 				if (((w >> (depth - 2 - i)) & 1) == b[i*BatchSize + tree_idx]) break; // find the first difference
-				if (!b[i*BatchSize + tree_idx]) {
+				if (b[i*BatchSize + tree_idx] ^ direction) {
 					acc ^= path_sum[i*BatchSize + tree_idx];
 				}
 			}
-			if (b[i*BatchSize + tree_idx]) {
-				for (uint32_t k = i + 1; k < depth - 1; k++) {
-					acc ^= path_sum[k*BatchSize + tree_idx];
-				}
-				acc ^= path_sum[(depth-1)*BatchSize + tree_idx];
-			}
+
 			block s[2] = {zero_block, zero_block};
 			block to_expand = s[(w >> (depth - 2 - i)) & 1] = path_sum[i*BatchSize + tree_idx];
 			for (i++; i < depth - 1; i++) {
 				ccrh->single_node_expand(s[0], s[1], to_expand);
-				to_expand = s[0];
-				if ((w >> (depth - 2 - i)) & 1) {
-					acc ^= s[0];
-					to_expand = s[1];
+				to_expand = s[1-direction];
+				if (((w >> (depth - 2 - i)) & 1) == direction) {
+					acc ^= s[1-direction];
+					to_expand = s[direction];
 				}
 			}
-			acc ^= s[w & 1];
+			if (direction)
+				acc ^= s[w & 1];
 		}
 	}
 
