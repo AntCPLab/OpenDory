@@ -45,6 +45,8 @@ public:
 	DoryPRP prp;
 	block minustwo, one;
 
+	// block* eval_path_sum_buf;
+
 
 	DoryCCRH *ccrh;
 
@@ -93,12 +95,15 @@ public:
 		}
 
 		ccrh = new DoryCCRH(zero_block);
+
+		// eval_path_sum_buf = new block[tree_height*EVAL_SIZE];
 	}
 
 	~StreamCotReg() {
 		for (auto p : senders) delete p;
 		for (auto p : recvers) delete p;
 		delete ccrh;
+		// delete[] eval_path_sum_buf;
 	}
 
 	void set_malicious() {
@@ -514,6 +519,9 @@ public:
 			}
 		}
 		else {
+			uint32_t choice[EVAL_SIZE];
+			uint32_t w[EVAL_SIZE];
+			block* path_sum = new block[tree_height*EVAL_SIZE];
 			for (int y = 0; y < d; y++) {
 				for (int m = 0; m < EVAL_SIZE; m++) {
 					int index = *r & mask;
@@ -521,9 +529,16 @@ public:
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					++r;
 					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
-					data[i+m] ^= recvers[batch_tree_idx]->acc_left(internal_tree_idx, wj);
+					// data[i+m] ^= recvers[batch_tree_idx]->acc_left(internal_tree_idx, wj);
+
+					choice[m] = recvers[batch_tree_idx]->choice_pos[internal_tree_idx];
+					w[m] = wj;
+					for(int i = 0; i < tree_height; i++)
+						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*BatchSize + internal_tree_idx];
 				}
+				batch_recver_acc_left<EVAL_SIZE>(data + i, path_sum, choice, w);
 			}
+			delete[] path_sum;
 		}
 		acc_time_log("eval");
 		for (int x = 0; x < EVAL_SIZE; x++)
@@ -897,6 +912,60 @@ public:
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
 	}
+
+	// compute sum of all leaves with index <= w for tree `tree_idx`
+	template<int S>
+	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
+		bool direction[S];
+		for(int i = 0; i < S; i++)
+			direction[i] = w[i] <= choice_pos[i];
+
+		uint32_t diff[S];
+		uint32_t min_i = tree_height - 1;
+		for(int j = 0; j < S; j++) {
+			diff[j] = tree_height - 1;
+			for (int i = 0; i < tree_height - 1; i++) {
+				if (((w[j] >> (tree_height - 2 - i)) & 1) != ((choice_pos[j] >> (tree_height - 2 - i)) & 1)) {
+					diff[j] = i; // find the first difference
+					min_i = std::min(min_i, (uint32_t)i);
+					break;
+				}
+				if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+					acc[j] ^= path_sum[i*S + j];
+				}
+			}
+		}
+
+		block s[2 * S];
+		block to_expand[S];
+		for (int i = 0; i < S; i++) {
+			if (diff[i] < tree_height - 2)
+				to_expand[i] = path_sum[diff[i]*S + i];
+			else if ((diff[i] == tree_height - 2) && direction[i])
+				acc[i] ^= path_sum[diff[i]*S + i];
+			else if (direction[i])
+				acc[i] ^= path_sum[(tree_height-1)*S + i];
+		}
+		for (int i = min_i + 1; i < tree_height - 1; i++) {
+			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
+			for (int j = 0; j < S; j++) {
+				if (diff[j] < i) {
+					if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+						acc[j] ^= s[(1-direction[j]) * S + j];
+						to_expand[j] = s[direction[j] * S + j];
+					}
+					else {
+						to_expand[j] = s[(1-direction[j]) * S + j];
+					}
+				}
+			}
+		}
+		for (int i = 0; i < S; i++) {
+			if (direction[i] && diff[i] < tree_height - 2)
+				acc[i] ^= s[(w[i] & 1) * S + i];
+		}
+	}
+
 
 
 	// f2k consistency check
