@@ -8,12 +8,12 @@
 using namespace emp;
 
 /**
- * `BatchSize` denotes the number of cGGM trees represented by this class.
+ * `B` denotes the number of cGGM trees represented by this class.
  * These trees will be evaluted together.
 */
-template<typename IO, int BatchSize = 8>
+template<typename IO, int B = 16>
 class CGGM_Sender { public:
-	block seed[BatchSize];
+	block seed[B];
 	block delta;
 	block *tree_traversal_stack, *half_sum;
 	uint32_t *dfs_levels;
@@ -26,8 +26,8 @@ class CGGM_Sender { public:
 		this->io = io;
 		this->depth = depth_in;
 		this->leave_n = 1<<(this->depth-1);
-		tree_traversal_stack = new block[depth * BatchSize];
-		half_sum = new block[(depth-1) * BatchSize];
+		tree_traversal_stack = new block[depth * B];
+		half_sum = new block[(depth-1) * B];
 		dfs_levels = new uint32_t[depth];
 		ccrh = new DoryCCRH(zero_block);
 
@@ -35,7 +35,7 @@ class CGGM_Sender { public:
 	}
 
 	void initialize() {
-		prg.random_block(seed, BatchSize);
+		prg.random_block(seed, B);
 	}
 
 	~CGGM_Sender() {
@@ -54,16 +54,16 @@ class CGGM_Sender { public:
 	// send the nodes by oblivious transfer, F2^k
 	template<typename OT>
 	void send_f2k(OT * ot, IO * io2, int s) {
-		ot->send(half_sum, (depth-1) * BatchSize, io2, s);
+		ot->send(half_sum, (depth-1) * B, io2, s);
 	}
 
 	// generate GGM tree from the top
 	void ggm_tree_gen() {
-		for (size_t i = 0; i < BatchSize; i++) {
-			tree_traversal_stack[BatchSize + i] = half_sum[i] = seed[i];
-			tree_traversal_stack[i] = delta ^ tree_traversal_stack[BatchSize + i];
+		for (size_t i = 0; i < B; i++) {
+			tree_traversal_stack[B + i] = half_sum[i] = seed[i];
+			tree_traversal_stack[i] = delta ^ tree_traversal_stack[B + i];
 			for (uint32_t h = 1; h < depth - 1; h++)
-				half_sum[h*BatchSize + i] = zero_block;
+				half_sum[h*B + i] = zero_block;
 		}
 		dfs_levels[0] = dfs_levels[1] = 0;
 
@@ -74,21 +74,21 @@ class CGGM_Sender { public:
 				top--;
 				continue;
 			}
-			ccrh->batch_node_expand<BatchSize>(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
 
-			for (size_t i = 0; i < BatchSize; i++)
-				half_sum[dfs_levels[top] * BatchSize + i] ^= tree_traversal_stack[top * BatchSize + i];
+			for (size_t i = 0; i < B; i++)
+				half_sum[dfs_levels[top] * B + i] ^= tree_traversal_stack[top * B + i];
 		}
 	}
 
 	// generate GGM tree from the top
 	void ggm_tree_gen(block* leaves_acc) {
-		for (size_t i = 0; i < BatchSize; i++) {
-			tree_traversal_stack[BatchSize + i] = seed[i];
-			tree_traversal_stack[i] = delta ^ tree_traversal_stack[BatchSize + i];
+		for (size_t i = 0; i < B; i++) {
+			tree_traversal_stack[B + i] = seed[i];
+			tree_traversal_stack[i] = delta ^ tree_traversal_stack[B + i];
 		}
 		dfs_levels[0] = dfs_levels[1] = 0;
 
@@ -97,21 +97,21 @@ class CGGM_Sender { public:
 		while (top >= 0) {
 			// We arrive at a leave, don't expand and go back to last level
 			if (dfs_levels[top] >= depth-2) {
-				for(int i = 0; i < BatchSize; i++) {
-					leaves_acc[next_leave_idx*BatchSize + i] = tree_traversal_stack[top * BatchSize + i];
+				for(int i = 0; i < B; i++) {
+					leaves_acc[next_leave_idx*B + i] = tree_traversal_stack[top * B + i];
 				}
 				next_leave_idx++;
 				top--;
 				continue;
 			}
-			ccrh->batch_node_expand<BatchSize>(&tree_traversal_stack[(top+1) * BatchSize], &tree_traversal_stack[top * BatchSize], &tree_traversal_stack[top * BatchSize]);
+			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
 		}
 		for (int i = 1; i < leave_n; i++) {
-			for (int j = 0; j < BatchSize; j++)
-				leaves_acc[i * BatchSize + j] ^= leaves_acc[(i-1) * BatchSize + j];
+			for (int j = 0; j < B; j++)
+				leaves_acc[i * B + j] ^= leaves_acc[(i-1) * B + j];
 		}
 	}
 
@@ -138,28 +138,28 @@ class CGGM_Sender { public:
 	// compute sum of all leaves with index <= w
 	// Although we can batch compute the acc efficiently, this API is not really used anywhere.
 	void acc_left(block* acc, uint32_t* w) {
-		block s[2 * BatchSize], to_expand[BatchSize];
-		for(size_t i = 0; i < BatchSize; i++) {
+		block s[2 * B], to_expand[B];
+		for(size_t i = 0; i < B; i++) {
 			acc[i] = zero_block;
 			s[i] = seed[i];
-			s[BatchSize + i] = delta ^ seed[i];
+			s[B + i] = delta ^ seed[i];
 		}
 		for (int i = depth - 2; i >= 0; i--) {
 
-			for (int j = 0; j < BatchSize; j++) {
+			for (int j = 0; j < B; j++) {
 				if ((w[j] >> i) & 1) {
 					acc[j] ^= s[j];
-					to_expand[j] = s[BatchSize + j];
+					to_expand[j] = s[B + j];
 				}
 				else {
 					to_expand[j] = s[j];
 				}
 			}
 			if (i == 0) break; // don't expand beyond the last layer
-			ccrh->batch_node_expand<BatchSize>(&s[0], &s[BatchSize], to_expand);
+			ccrh->batch_node_expand<B>(&s[0], &s[B], to_expand);
 		}
-		for (size_t i = 0; i < BatchSize; i++)
-			acc[i] ^= s[(w[i] & 1) * BatchSize + i];
+		for (size_t i = 0; i < B; i++)
+			acc[i] ^= s[(w[i] & 1) * B + i];
 	}
 
 	void consistency_check_msg_gen(block *V) {

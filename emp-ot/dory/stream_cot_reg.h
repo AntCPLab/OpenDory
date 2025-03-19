@@ -13,7 +13,7 @@
 using namespace emp;
 using std::future;
 
-template<typename IO, int BatchSize>
+template<typename IO, int B>
 class StreamCotReg {
 public:
 	constexpr static int EVAL_SIZE = 8;
@@ -36,8 +36,8 @@ public:
 	std::vector<uint32_t> item_pos_recver;
 	GaloisFieldPacking pack;
 
-	vector<CGGM_Sender<IO, BatchSize>*> senders;
-	vector<CGGM_Recver<IO, BatchSize>*> recvers;
+	vector<CGGM_Sender<IO, B>*> senders;
+	vector<CGGM_Recver<IO, B>*> recvers;
 	int mask;
 	int ell = 16;
 	uint32_t upper_bound;
@@ -70,7 +70,7 @@ public:
 		this->tree_height = log_bin_sz+1;
 		this->leave_n = 1<<(this->tree_height-1);
 		this->tree_n = this->item_n;
-		this->batch_tree_n = (this->tree_n + BatchSize - 1) / BatchSize;
+		this->batch_tree_n = (this->tree_n + B - 1) / B;
 
 		this->cnt = this->upper_bound = n;
 
@@ -85,12 +85,12 @@ public:
 
 		if (party == ALICE) {
 			for(int i = 0; i < batch_tree_n; ++i) {
-				senders.push_back(new CGGM_Sender<IO, BatchSize>(netio, tree_height));
+				senders.push_back(new CGGM_Sender<IO, B>(netio, tree_height));
 			}
 		}
 		else {
 			for(int i = 0; i < batch_tree_n; ++i) {
-				recvers.push_back(new CGGM_Recver<IO, BatchSize>(netio, tree_height));
+				recvers.push_back(new CGGM_Recver<IO, B>(netio, tree_height));
 			}
 		}
 
@@ -115,7 +115,7 @@ public:
 	}
 
 	void recver_init() {
-		item_pos_recver.resize(this->batch_tree_n * BatchSize);
+		item_pos_recver.resize(this->batch_tree_n * B);
 	}
 
 	// MPFSS F_2k
@@ -137,7 +137,7 @@ public:
 		acc_time_log("bootstrap");
 	}
 
-	void mpcot_init_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
+	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, OTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			senders[i]->initialize();
 			ot->choices_sender();
@@ -146,18 +146,18 @@ public:
 		ot->reset();
 	}
 
-	void mpcot_init_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
+	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, OTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			ot->choices_recver(recvers[i]->b);
 			const uint32_t* idx = recvers[i]->get_index();
-			for (int j = 0; j < BatchSize; j++)
-				item_pos_recver[i*BatchSize + j] = idx[j];
+			for (int j = 0; j < B; j++)
+				item_pos_recver[i*B + j] = idx[j];
 		}
 		netio->flush();
 		ot->reset();
 	}
 
-	void exec_parallel_sender(vector<CGGM_Sender<IO, BatchSize>*> &senders, OTPre<IO> *ot) {
+	void exec_parallel_sender(vector<CGGM_Sender<IO, B>*> &senders, OTPre<IO> *ot) {
 		vector<future<void>> fut;
 		// Assume LPN with a regular noise distribution,
 		// the task is simply divided into t calls of SPCOT, 
@@ -179,7 +179,7 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_parallel_recver(vector<CGGM_Recver<IO, BatchSize>*> &recvers, OTPre<IO> *ot) {
+	void exec_parallel_recver(vector<CGGM_Recver<IO, B>*> &recvers, OTPre<IO> *ot) {
 		vector<future<void>> fut;		
 		int width = batch_tree_n / threads;
 		int start = 0, end = width;
@@ -198,7 +198,7 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_f2k_sender(CGGM_Sender<IO, BatchSize> *sender, OTPre<IO> *ot, IO *io, int i) {
+	void exec_f2k_sender(CGGM_Sender<IO, B> *sender, OTPre<IO> *ot, IO *io, int i) {
 		sender->compute(Delta_f2k);
 		sender->template send_f2k<OTPre<IO>>(ot, io, i);
 		io->flush();
@@ -206,7 +206,7 @@ public:
 			sender->consistency_check_msg_gen(consist_check_VW+i);
 	}
 
-	void exec_f2k_recver(CGGM_Recver<IO, BatchSize> *recver, OTPre<IO> *ot, IO *io, int i) {
+	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, OTPre<IO> *ot, IO *io, int i) {
 		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
@@ -250,20 +250,20 @@ public:
 
 	// inline void sample_J_batch(uint32_t** J, int start) {
 	// 	int n_blocks = (ell + 3) / 4;
-	// 	block* tmp = new block[n_blocks * BatchSize];
+	// 	block* tmp = new block[n_blocks * B];
 	// 	acc_time_log("sample 1st loop");
 	// 	block* pt = tmp;
-	// 	for (int i = start; i < start + BatchSize; i++) {
+	// 	for (int i = start; i < start + B; i++) {
 	// 		for(int m = 0; m < n_blocks; ++m, pt++)
 	// 			*pt = makeBlock(i, m);
 	// 	}
 	// 	acc_time_log("sample 1st loop");
 	// 	acc_time_log("sample enc");
-	// 	prp.permute_block(tmp, BatchSize * n_blocks);
+	// 	prp.permute_block(tmp, B * n_blocks);
 	// 	acc_time_log("sample enc");
 	// 	*J = (uint32_t*)(tmp);
 	// 	acc_time_log("sample 2nd loop");
-	// 	for (int i = 0; i < BatchSize * n_blocks * 4; i++) {
+	// 	for (int i = 0; i < B * n_blocks * 4; i++) {
 	// 		(*J)[i] &= mask;
 	// 		(*J)[i] = (*J)[i] >= idx_max? (*J)[i]-idx_max : (*J)[i];
 	// 	}
@@ -276,16 +276,16 @@ public:
 		block* tmp = reinterpret_cast<block*>(J);
 		acc_time_log("sample 1st loop");
 		block* pt = tmp;
-		for (int i = start; i < start + BatchSize; i++) {
+		for (int i = start; i < start + B; i++) {
 			for(int m = 0; m < n_blocks; ++m, pt++)
 				*pt = makeBlock(i, m);
 		}
 		acc_time_log("sample 1st loop");
 		acc_time_log("sample enc");
-		prp.permute_block(tmp, BatchSize * n_blocks);
+		prp.permute_block(tmp, B * n_blocks);
 		acc_time_log("sample enc");
 		acc_time_log("sample 2nd loop");
-		for (int i = 0; i < BatchSize * n_blocks * 4; i++) {
+		for (int i = 0; i < B * n_blocks * 4; i++) {
 			J[i] &= mask;
 			J[i] = J[i] >= idx_max? J[i]-idx_max : J[i];
 		}
@@ -339,11 +339,11 @@ public:
 		}
 
 		// int length = end - start;
-		// for(int i = 0; i < length/BatchSize; ++i) {
-		// 	exec_eval_batch(data, start + i*BatchSize);
-		// 	data += BatchSize;
+		// for(int i = 0; i < length/B; ++i) {
+		// 	exec_eval_batch(data, start + i*B);
+		// 	data += B;
 		// }
-		// int remain = length % BatchSize;
+		// int remain = length % B;
 		// for (int i = end-remain; i < end; i++) {
 		// 	exec_eval(data, i);
 		// 	data++;
@@ -370,7 +370,7 @@ public:
 			// for (int x = 0; x < ell; x++) {
 			// 	int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
 			// 	block tmp;
-			// 	senders[uj/DEFAULT_EXPAND_SIZE]->acc_left(tmp, uj % DEFAULT_EXPAND_SIZE, wj);
+			// 	senders[uj/B]->acc_left(tmp, uj % B, wj);
 			// 	*data ^= tmp;
 			// 	if (uj & 1)
 			// 		*data ^= Delta_f2k;
@@ -379,21 +379,21 @@ public:
 			/* Batch impl. */
 			int y;
 			bool correction = false;
-			block seed[DEFAULT_EXPAND_SIZE];
-			uint32_t w[DEFAULT_EXPAND_SIZE];
-			for (y = 0; y < ell/DEFAULT_EXPAND_SIZE; y++) {
-				for (int x = 0; x < DEFAULT_EXPAND_SIZE; x++) {
-					int uj = J[y*DEFAULT_EXPAND_SIZE + x] >> (tree_height - 1), wj = J[y*DEFAULT_EXPAND_SIZE + x] & leave_mask;
-					seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
+			block seed[EVAL_SIZE];
+			uint32_t w[EVAL_SIZE];
+			for (y = 0; y < ell/EVAL_SIZE; y++) {
+				for (int x = 0; x < EVAL_SIZE; x++) {
+					int uj = J[y*EVAL_SIZE + x] >> (tree_height - 1), wj = J[y*EVAL_SIZE + x] & leave_mask;
+					seed[x] = senders[uj/B]->seed[uj % B];
 					w[x] = wj;
 					correction ^= uj & 1;
 				}
-				*data ^= batch_sender_acc_left<DEFAULT_EXPAND_SIZE>(seed, w);
+				*data ^= batch_sender_acc_left<EVAL_SIZE>(seed, w);
 			}
-			for (y = y * DEFAULT_EXPAND_SIZE; y < ell; y++) {
+			for (y = y * EVAL_SIZE; y < ell; y++) {
 				int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
 				block tmp;
-				senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+				senders[uj/B]->acc_left(tmp, uj % B, wj);
 				*data ^= tmp;
 				correction ^= uj & 1;
 			}
@@ -403,7 +403,7 @@ public:
 		else {
 			for (int x = 0; x < ell; x++) {
 				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
-				*data ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
+				*data ^= recvers[uj/B]->acc_left(uj % B, wj);
 			}
 		}
 		acc_time_log("eval");
@@ -413,7 +413,7 @@ public:
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
 				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
-				choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+				choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 			}
 			if (choice)
 				*data ^= one; 
@@ -430,49 +430,49 @@ public:
 		J = (uint32_t*)(&J_blocks[0]);
 		acc_time_log("sample");
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		memset(data, 0, BatchSize*sizeof(block));
+		memset(data, 0, B*sizeof(block));
 		acc_time_log("eval");
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
 			/* Batch impl. */
-			block seed[BatchSize];
-			uint32_t w[BatchSize];
-			bool correction[BatchSize];
-			memset(correction, 0, BatchSize);
+			block seed[B];
+			uint32_t w[B];
+			bool correction[B];
+			memset(correction, 0, B);
 			uint32_t* J_first = J;
 			for (int i = 0; i < ell; i++) {
-				for (int k = 0; k < BatchSize; k++) {
+				for (int k = 0; k < B; k++) {
 					int uj = J[k*stride + i] >> (tree_height - 1), wj = J[k*stride + i] & leave_mask;
-					seed[k] = senders[uj/BatchSize]->seed[uj%BatchSize];
+					seed[k] = senders[uj/B]->seed[uj%B];
 					w[k] = wj;
 					correction[k] ^= uj & 1;
 				}
-				batch_sender_acc_left<BatchSize>(data, seed, w, senders[0]->ccrh);
+				batch_sender_acc_left<B>(data, seed, w, senders[0]->ccrh);
 			}
-			for (int k = 0; k < BatchSize; k++) {
+			for (int k = 0; k < B; k++) {
 				if (correction[k])
 					data[k] ^= Delta_f2k;
 			}
 			J = J_first;
 		}
 		else {
-			for (int x = 0; x < BatchSize; x++) {
+			for (int x = 0; x < B; x++) {
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					data[x] ^= recvers[uj/BatchSize]->acc_left(uj % BatchSize, wj);
+					data[x] ^= recvers[uj/B]->acc_left(uj % B, wj);
 				}
 			}
 		}
 		acc_time_log("eval");
-		for (int x = 0; x < BatchSize; x++)
+		for (int x = 0; x < B; x++)
 			data[x] &= minustwo;
 		acc_time_log("choice");
 		if (party == BOB) {
-			for (int x = 0; x < BatchSize; x++) {
+			for (int x = 0; x < B; x++) {
 				bool choice = false;
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 				}
 				if (choice)
 					data[x] ^= one; 
@@ -507,7 +507,7 @@ public:
 					index = index >= idx_max? index-idx_max : index;
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					++r;
-					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
 					seed[m] = senders[batch_tree_idx]->seed[internal_tree_idx];
 					w[m] = wj;
 					correction[m] ^= uj & 1;
@@ -528,13 +528,13 @@ public:
 					index = index >= idx_max? index-idx_max : index;
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					++r;
-					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
 					// data[i+m] ^= recvers[batch_tree_idx]->acc_left(internal_tree_idx, wj);
 
 					choice[m] = recvers[batch_tree_idx]->choice_pos[internal_tree_idx];
 					w[m] = wj;
 					for(int i = 0; i < tree_height; i++)
-						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*BatchSize + internal_tree_idx];
+						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*B + internal_tree_idx];
 				}
 				batch_recver_acc_left<EVAL_SIZE>(data + i, path_sum, choice, w);
 			}
@@ -554,7 +554,7 @@ public:
 					index = index >= idx_max? index-idx_max : index;
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					++r;
-					int batch_tree_idx = uj/BatchSize, internal_tree_idx = uj % BatchSize;
+					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
 					choices[m] ^= ((uj & 1) ^ (wj >= recvers[batch_tree_idx]->choice_pos[internal_tree_idx]));
 				}
 			}
@@ -578,24 +578,24 @@ public:
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
 			/* Batch impl. */
-			block seed[BatchSize];
-			uint32_t w[BatchSize];
+			block seed[B];
+			uint32_t w[B];
 			for (int i = 0; i < length; i++) {
 				int y;
 				bool correction = false;
-				for (y = 0; y < ell/BatchSize; y++) {
-					for (int x = 0; x < BatchSize; x++) {
-						int uj = J[y*BatchSize + x] >> (tree_height - 1), wj = J[y*BatchSize + x] & leave_mask;
-						seed[x] = senders[uj/BatchSize]->seed[uj % BatchSize];
+				for (y = 0; y < ell/B; y++) {
+					for (int x = 0; x < B; x++) {
+						int uj = J[y*B + x] >> (tree_height - 1), wj = J[y*B + x] & leave_mask;
+						seed[x] = senders[uj/B]->seed[uj % B];
 						w[x] = wj;
 						correction ^= uj & 1;
 					}
-					data[i] ^= batch_sender_acc_left<BatchSize>(seed, w, senders[0]->ccrh);
+					data[i] ^= batch_sender_acc_left<B>(seed, w, senders[0]->ccrh);
 				}
-				for (y = y * BatchSize; y < ell; y++) {
+				for (y = y * B; y < ell; y++) {
 					int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
 					block tmp;
-					senders[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					senders[uj/B]->acc_left(tmp, uj % B, wj);
 					data[i] ^= tmp;
 					correction ^= uj & 1;
 				}
@@ -608,7 +608,7 @@ public:
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
 					block tmp;
-					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					recvers[uj/B]->acc_left(tmp, uj % B, wj);
 					data[x] ^= tmp;
 				}
 			}
@@ -622,7 +622,7 @@ public:
 				bool choice = false;
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 				}
 				if (choice)
 					data[x] ^= one; 
@@ -649,7 +649,7 @@ public:
 			vector<size_t> sizes(batch_tree_n, 0);
 			for (int x = 0; x < length * stride; x++) {
 				int uj = J[x] >> (tree_height - 1);
-				sizes[uj / BatchSize]++;
+				sizes[uj / B]++;
 			}
 			acc_time_log("summary");
 			std::vector<std::vector<uint64_t>> lists(batch_tree_n);
@@ -663,7 +663,7 @@ public:
 				bool correction = false;
 				for (int y = 0; y < ell; y++, J++) {
 					int uj = *J >> (tree_height - 1), wj = *J & leave_mask;
-					lists[uj/BatchSize].push_back((((uint64_t)x) << 32) | (wj * BatchSize + uj % BatchSize));
+					lists[uj/B].push_back((((uint64_t)x) << 32) | (wj * B + uj % B));
 					correction ^= uj & 1;
 				}
 				J += stride - ell;
@@ -673,7 +673,7 @@ public:
 			J = J_first;
 			data = data_first;
 			acc_time_log("1st loop");
-			block *buf = new block[senders[0]->leave_n * BatchSize];
+			block *buf = new block[senders[0]->leave_n * B];
 			for (int i = 0; i < batch_tree_n; i++) {
 				acc_time_log("acc expand");
 				if (lists[i].size() == 0) continue;
@@ -695,7 +695,7 @@ public:
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
 					block tmp;
-					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					recvers[uj/B]->acc_left(tmp, uj % B, wj);
 					data[x] ^= tmp;
 				}
 			}
@@ -709,7 +709,7 @@ public:
 				bool choice = false;
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 				}
 				if (choice)
 					data[x] ^= one; 
@@ -721,7 +721,7 @@ public:
 
 	void __compute4(block* data, block* buf, int i) {
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		int batch_tree_space = senders[0]->leave_n * BatchSize;
+		int batch_tree_space = senders[0]->leave_n * B;
 		constexpr int d = 10; // [TODO] This is just copied from Ferret, not correct for Dory.
 		block tmp[d];
 		for(int m = 0; m < d; ++m)
@@ -736,7 +736,7 @@ public:
 				index = index >= idx_max? index-idx_max : index;
 				int uj = index >> (tree_height - 1), wj = index & leave_mask;
 				++r;
-				int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
+				int batch_tree_idx = uj/B, leave_idx = wj * B + uj % B;
 				data[i + m] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
 				correction ^= uj & 1;
 			}
@@ -756,7 +756,7 @@ public:
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
 			block ch[2] = {zero_block, Delta_f2k};
-			int batch_tree_space = senders[0]->leave_n * BatchSize;
+			int batch_tree_space = senders[0]->leave_n * B;
 			block *buf = new block[batch_tree_space * batch_tree_n];
 			acc_time_log("acc expand");
 			for (int i = 0; i < batch_tree_n; i++) {
@@ -768,7 +768,7 @@ public:
 			// 	bool correction = false;
 			// 	for (int y = 0; y < ell; y++) {
 			// 		int uj = J[x * stride + y] >> (tree_height - 1), wj = J[x * stride + y] & leave_mask;
-			// 		int batch_tree_idx = uj/BatchSize, leave_idx = wj * BatchSize + uj % BatchSize;
+			// 		int batch_tree_idx = uj/B, leave_idx = wj * B + uj % B;
 			// 		data[x] ^= buf[batch_tree_idx * batch_tree_space + leave_idx];
 			// 		correction ^= uj & 1;
 			// 	}
@@ -786,7 +786,7 @@ public:
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
 					block tmp;
-					recvers[uj/BatchSize]->acc_left(tmp, uj % BatchSize, wj);
+					recvers[uj/B]->acc_left(tmp, uj % B, wj);
 					data[x] ^= tmp;
 				}
 			}
@@ -800,7 +800,7 @@ public:
 				bool choice = false;
 				for (int y = 0; y < ell; y++) {
 					int uj = J[x*stride + y] >> (tree_height - 1), wj = J[x*stride + y] & leave_mask;
-					choice ^= ((uj & 1) ^ (wj >= recvers[uj/BatchSize]->choice_pos[uj%BatchSize]));
+					choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 				}
 				if (choice)
 					data[x] ^= one; 
@@ -815,18 +815,18 @@ public:
 	template<int S>
 	block batch_sender_acc_left(const block* seed, const uint32_t* w) {
 		// block acc = zero_block;
-		// block s[2 * BatchSize], to_expand[BatchSize];
-		// for(size_t i = 0; i < BatchSize; i++) {
+		// block s[2 * B], to_expand[B];
+		// for(size_t i = 0; i < B; i++) {
 		// 	s[i] = seed[i];
-		// 	s[BatchSize + i] = Delta_f2k ^ seed[i];
+		// 	s[B + i] = Delta_f2k ^ seed[i];
 		// }
 		// acc_time_log("batch_node_expand");
 		// for (int i = tree_height - 2; i >= 0; i--) {
 		// 	if (i==tree_height-2) acc_time_log("loop");
-		// 	for (int j = 0; j < BatchSize; j++) {
+		// 	for (int j = 0; j < B; j++) {
 		// 		if ((w[j] >> i) & 1) {
 		// 			acc ^= s[j];
-		// 			to_expand[j] = s[BatchSize + j];
+		// 			to_expand[j] = s[B + j];
 		// 		}
 		// 		else {
 		// 			to_expand[j] = s[j];
@@ -835,12 +835,12 @@ public:
 		// 	if (i==tree_height-2) acc_time_log("loop");
 		// 	if (i == 0) break; // don't expand beyond the last layer
 		// 	if (i==tree_height-2) acc_time_log("exact");
-		// 	ccrh->batch_node_expand(&s[0], &s[BatchSize], to_expand);
+		// 	ccrh->batch_node_expand(&s[0], &s[B], to_expand);
 		// 	if (i==tree_height-2) acc_time_log("exact");
 		// }
 		// acc_time_log("batch_node_expand");
-		// for (size_t i = 0; i < BatchSize; i++)
-		// 	acc ^= s[(w[i] & 1) * BatchSize + i];
+		// for (size_t i = 0; i < B; i++)
+		// 	acc ^= s[(w[i] & 1) * B + i];
 		// return acc;
 		block acc[S];
 		memset(acc, 0, S*sizeof(block));
@@ -849,37 +849,6 @@ public:
 			acc[i] ^= acc[i-1];
 		return acc[S - 1];
 	}
-
-	// // compute sum of all leaves with index <= w
-	// void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
-	// 	block s[2 * DEFAULT_EXPAND_SIZE], to_expand[DEFAULT_EXPAND_SIZE];
-	// 	for(size_t i = 0; i < DEFAULT_EXPAND_SIZE; i++) {
-	// 		s[i] = seed[i];
-	// 		s[DEFAULT_EXPAND_SIZE + i] = Delta_f2k ^ seed[i];
-	// 	}
-	// 	// acc_time_log("batch_node_expand");
-	// 	for (int i = tree_height - 2; i >= 0; i--) {
-	// 		// if (i==tree_height-2) acc_time_log("loop");
-	// 		for (int j = 0; j < DEFAULT_EXPAND_SIZE; j++) {
-	// 			if ((w[j] >> i) & 1) {
-	// 				acc[j] ^= s[j];
-	// 				to_expand[j] = s[DEFAULT_EXPAND_SIZE + j];
-	// 			}
-	// 			else {
-	// 				to_expand[j] = s[j];
-	// 			}
-	// 		}
-	// 		// if (i==tree_height-2) acc_time_log("loop");
-	// 		if (i == 0) break; // don't expand beyond the last layer
-	// 		// if (i==tree_height-2) acc_time_log("exact");
-	// 		ccrh->batch_node_expand<DEFAULT_EXPAND_SIZE>(&s[0], &s[DEFAULT_EXPAND_SIZE], to_expand);
-	// 		// if (i==tree_height-2) acc_time_log("exact");
-	// 	}
-	// 	// acc_time_log("batch_node_expand");
-	// 	for (size_t i = 0; i < DEFAULT_EXPAND_SIZE; i++) {
-	// 		acc[i] ^= s[(w[i] & 1) * DEFAULT_EXPAND_SIZE + i];
-	// 	}
-	// }
 
 	// compute sum of all leaves with index <= w
 	template<int S>
@@ -924,8 +893,9 @@ public:
 		uint32_t min_i = tree_height - 1;
 		for(int j = 0; j < S; j++) {
 			diff[j] = tree_height - 1;
+			uint32_t tmp = w[j] ^ choice_pos[j];
 			for (int i = 0; i < tree_height - 1; i++) {
-				if (((w[j] >> (tree_height - 2 - i)) & 1) != ((choice_pos[j] >> (tree_height - 2 - i)) & 1)) {
+				if ((tmp >> (tree_height - 2 - i)) & 1) {
 					diff[j] = i; // find the first difference
 					min_i = std::min(min_i, (uint32_t)i);
 					break;

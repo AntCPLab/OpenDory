@@ -6,7 +6,7 @@
 
 namespace emp {
 
-template<typename T, int BatchSize = 8>
+template<typename T, int B = 8>
 class DoryCOT: public COT<T> {
 public:
 	using COT<T>::io;
@@ -58,7 +58,7 @@ private:
 	BaseCot<T> *base_cot = nullptr;
 	OTPre<T> *pre_ot = nullptr;
 	ThreadPool *pool = nullptr;
-	StreamCotReg<T, BatchSize> *stream_cot = nullptr;
+	StreamCotReg<T, B> *stream_cot = nullptr;
 	
 	void online_sender(block *data, int64_t length);
 
@@ -70,7 +70,7 @@ private:
 
 	void extend_initialization();
 
-	void extend_full(block* ot_output, StreamCotReg<T, BatchSize> *mpfss, OTPre<T> *preot, 
+	void extend_full(block* ot_output, StreamCotReg<T, B> *mpfss, OTPre<T> *preot, 
 		block *ot_input);
 
 	void extend_full(block *ot_buffer);

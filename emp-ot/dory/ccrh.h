@@ -93,8 +93,6 @@ static inline void aes_key_to_aes_keyx4(AES_KEYx4_t* out_key, const AES_KEY* key
 
 #endif
 
-#define DEFAULT_EXPAND_SIZE 16
-
 /*
  * By default, CRH use zero_block as the AES key.
  * Here we model f(x) = AES_{00..0}(x) as a random permutation (and thus in the RPM model)
