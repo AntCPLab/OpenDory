@@ -12,6 +12,23 @@ typedef __m512i blockx4_t;
 // NOTE: any use of this struct should make sure the memory allocation is 64-byte aligned, otherwise there will be
 // a segmentation fault. The `alignas(64)` doesn't really guarantee this.
 typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
+
+inline std::ostream& operator<<(std::ostream& out, const blockx4_t& blk) {
+	out << std::hex;
+	uint64_t* data = (uint64_t*)&blk;
+
+	out << std::setw(16) << std::setfill('0') << data[7] <<" "
+		<< std::setw(16) << std::setfill('0') << data[6] <<" "
+		<< std::setw(16) << std::setfill('0') << data[5] <<" "
+		<< std::setw(16) << std::setfill('0') << data[4] <<" "
+		<< std::setw(16) << std::setfill('0') << data[3] <<" "
+		<< std::setw(16) << std::setfill('0') << data[2] <<" "
+		<< std::setw(16) << std::setfill('0') << data[1] <<" " 
+		<< std::setw(16) << std::setfill('0') << data[0];
+
+	out << std::dec << std::setw(0);
+	return out;
+}
 #endif
 
 #ifdef __AVX512F__
@@ -143,7 +160,7 @@ class DoryCCRH { public:
 
 	/**
 	 * `N` should be smaller than `MAX_BATCH_SIZE`.
-	 * If we want to benefit from AVX512, `N` should be a multiple of 4.
+	 * `N` should be a multiple of 4.
 	*/
 	template<int N>
 	void batch_node_expand(block* left, block* right, const block* parent) {
@@ -155,16 +172,14 @@ class DoryCCRH { public:
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
 #ifdef __AVX512F__
-		if((N & 0x3) == 0) {
+		// if((N & 0x3) == 0) {
 		// if(batch_keys) { // This is slower than above
 			// ParaEnc<N>(tmp, batch_keys);
 			AES_ecb_encrypt_blks<N>(tmp, &batch_keys[0]);
-		}
-		else {
-#endif
-			ParaEnc<N, 1>(tmp, scheduled_keys);
-#ifdef __AVX512F__
-		}
+		// }
+		// else {
+#else
+		ParaEnc<N, 1>(tmp, scheduled_keys);
 #endif
 		for(size_t i = 0; i < N; i++) {
 			left[i] ^= tmp[i];

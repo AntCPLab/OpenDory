@@ -853,7 +853,7 @@ public:
 	// compute sum of all leaves with index <= w
 	template<int S>
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
-		block s[2 * S], to_expand[S];
+		alignas(64) block s[2 * S], to_expand[S];
 		for(size_t i = 0; i < S; i++) {
 			s[i] = seed[i];
 			s[S + i] = Delta_f2k ^ seed[i];
@@ -861,14 +861,45 @@ public:
 		// acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
 			// if (i==tree_height-2) acc_time_log("loop");
+#ifdef __AVX512F__
+			for (int j = 0; j < S; j+=4) {
+				// load w[j..j+3]
+				__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
+				__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, i), _mm_set1_epi32(1));
+				__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1));
+				uint8_t conds_bits = _cvtmask8_u32(conds);
+
+				conds_bits = ((conds_bits & 0x01) * 0x03) |
+							 ((conds_bits & 0x02) * 0x06) | 
+							 ((conds_bits & 0x04) * 0x0C) |
+							 ((conds_bits & 0x08) * 0x18);
+				conds = _cvtu32_mask8(conds_bits);
+
+				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
+				__m512i s_high = _mm512_load_epi32((void const*)&s[S+j]);
+				__m512i expanded = _mm512_mask_blend_epi64(conds, s_low, s_high);
+				_mm512_store_epi32((void*)&to_expand[j], expanded);
+
+				__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), s_low);
+				__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
+				cur = _mm512_xor_si512(cur, acced);
+				_mm512_storeu_epi32((void*)&acc[j], cur);
+
+#else
 			for (int j = 0; j < S; j++) {
-				if ((w[j] >> i) & 1) {
-					acc[j] ^= s[j];
-					to_expand[j] = s[S + j];
-				}
-				else {
-					to_expand[j] = s[j];
-				}
+				const uint32_t w_val = w[j];
+				const int cond = (w_val >> i) & 1;
+				const __m128i cond_mask = _mm_set1_epi32(-cond);
+
+				// to_expand[j] = cond ? s[S + j] : s[j]
+				const __m128i s_low = s[j];
+				const __m128i s_high = s[S + j];
+				to_expand[j] = _mm_blendv_epi8(s_low, s_high, cond_mask);
+
+				// acc[j] ^= (cond ? s[j] : 0)
+				const __m128i masked_s = _mm_and_si128(cond_mask, s[j]);
+				acc[j] = _mm_xor_si128(acc[j], masked_s);
+#endif
 			}
 			// if (i==tree_height-2) acc_time_log("loop");
 			if (i == 0) break; // don't expand beyond the last layer
