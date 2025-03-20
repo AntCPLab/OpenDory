@@ -16,7 +16,7 @@ using std::future;
 template<typename IO, int B>
 class StreamCotReg {
 public:
-	constexpr static int EVAL_SIZE = 8;
+	constexpr static int EVAL_SIZE = 32;
 	int party, threads;
 	int item_n, m;
 	uint32_t idx_max;
@@ -853,14 +853,13 @@ public:
 	// compute sum of all leaves with index <= w
 	template<int S>
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
+		static int flag = 0;
 		alignas(64) block s[2 * S], to_expand[S];
 		for(size_t i = 0; i < S; i++) {
 			s[i] = seed[i];
 			s[S + i] = Delta_f2k ^ seed[i];
 		}
-		// acc_time_log("batch_node_expand");
 		for (int i = tree_height - 2; i >= 0; i--) {
-			// if (i==tree_height-2) acc_time_log("loop");
 #ifdef __AVX512F__
 			for (int j = 0; j < S; j+=4) {
 				// load w[j..j+3]
@@ -901,13 +900,10 @@ public:
 				acc[j] = _mm_xor_si128(acc[j], masked_s);
 #endif
 			}
-			// if (i==tree_height-2) acc_time_log("loop");
 			if (i == 0) break; // don't expand beyond the last layer
-			// if (i==tree_height-2) acc_time_log("exact");
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
-			// if (i==tree_height-2) acc_time_log("exact");
 		}
-		// acc_time_log("batch_node_expand");
+
 		for (size_t i = 0; i < S; i++) {
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}

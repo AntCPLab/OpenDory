@@ -13,6 +13,13 @@ typedef __m512i blockx4_t;
 // a segmentation fault. The `alignas(64)` doesn't really guarantee this.
 typedef struct alignas(64) { blockx4_t rd_key[11]; unsigned int rounds; } AES_KEYx4_t;
 
+inline __m512i sigma512(__m512i a) {
+	return _mm512_xor_si512(
+		_mm512_shuffle_epi32(a, static_cast<_MM_PERM_ENUM>(78)),
+		_mm512_and_si512(a, _mm512_broadcast_i32x4(makeBlock(0xFFFFFFFFFFFFFFFF, 0x00)))
+	);
+}
+
 inline std::ostream& operator<<(std::ostream& out, const blockx4_t& blk) {
 	out << std::hex;
 	uint64_t* data = (uint64_t*)&blk;
@@ -116,7 +123,7 @@ static inline void aes_key_to_aes_keyx4(AES_KEYx4_t* out_key, const AES_KEY* key
  */
 class DoryCCRH { public:
 	// The maximum number of blocks to be expanded once.
-	constexpr static int MAX_BATCH_SIZE = 16;
+	constexpr static int MAX_BATCH_SIZE = 32;
 #ifdef __AVX512F__
 	// AES_KEYx4_t batch_keys[(MAX_BATCH_SIZE + 3)/4];
 	AES_KEYx4_t *batch_keys = nullptr;
@@ -167,24 +174,39 @@ class DoryCCRH { public:
 		count_log("aes", N);
 		// [TODO] Need to revisit here. Compiler might not respect the 64-byte aligned request.
 		alignas(64) block tmp[N];
+#ifdef __AVX512F__
+		for(size_t i = 0; i < N; i+=4) {
+			__m512i parent_pack = _mm512_loadu_si512((__m512i*)&parent[i]);
+			_mm512_storeu_si512((__m512i*)&right[i], parent_pack);
+
+			__m512i sigma_p = sigma512(parent_pack);
+			_mm512_storeu_si512((__m512i*)&left[i], sigma_p);
+			_mm512_storeu_si512((__m512i*)&tmp[i], sigma_p);
+		}
+		// ParaEnc<N>(tmp, batch_keys);
+		AES_ecb_encrypt_blks<N>(tmp, &batch_keys[0]);
+		for(size_t i = 0; i < N; i+=4) {
+			__m512i left_pack = _mm512_loadu_si512((__m512i*)&left[i]);
+			__m512i tmp_pack = _mm512_loadu_si512((__m512i*)&tmp[i]);
+			__m512i right_pack = _mm512_loadu_si512((__m512i*)&right[i]);
+
+			__m512i new_left = _mm512_xor_si512(left_pack, tmp_pack);
+			__m512i new_right = _mm512_xor_si512(right_pack, new_left);
+
+			_mm512_storeu_si512((__m512i*)&left[i], new_left);
+			_mm512_storeu_si512((__m512i*)&right[i], new_right);
+		}
+#else
 		for(size_t i = 0; i < N; i++) {
 			tmp[i] = right[i] = parent[i];
 			left[i] = tmp[i] = sigma(tmp[i]);
 		}
-#ifdef __AVX512F__
-		// if((N & 0x3) == 0) {
-		// if(batch_keys) { // This is slower than above
-			// ParaEnc<N>(tmp, batch_keys);
-			AES_ecb_encrypt_blks<N>(tmp, &batch_keys[0]);
-		// }
-		// else {
-#else
 		ParaEnc<N, 1>(tmp, scheduled_keys);
-#endif
 		for(size_t i = 0; i < N; i++) {
 			left[i] ^= tmp[i];
 			right[i] ^= left[i];
 		}
+#endif
 	}
 
 	void single_node_expand(block& left, block& right, const block& parent) {
