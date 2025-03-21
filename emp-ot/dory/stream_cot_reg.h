@@ -946,26 +946,10 @@ public:
 		alignas(16) uint32_t diff[S];
 		uint32_t min_i = tree_height - 1;
 		if (flag < 1000000) acc_time_log("batch 1st loop");
-		for(int j = 0; j < S; j++) {
-			diff[j] = tree_height - 1;
-			uint32_t tmp = w[j] ^ choice_pos[j];
-			for (int i = 0; i < tree_height - 1; i++) {
-				if ((tmp >> (tree_height - 2 - i)) & 1) {
-					diff[j] = i; // find the first difference
-					min_i = std::min(min_i, (uint32_t)i);
-					break;
-				}
-				if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
-					acc[j] ^= path_sum[i*S + j];
-				}
-			}
-		}
 		// for(int j = 0; j < S; j++) {
 		// 	diff[j] = tree_height - 1;
-		// }
-		// for (int i = 0; i < tree_height - 1; i++) {
-		// 	for(int j = 0; j < S; j++) {
-		// 		uint32_t tmp = w[j] ^ choice_pos[j];
+		// 	uint32_t tmp = w[j] ^ choice_pos[j];
+		// 	for (int i = 0; i < tree_height - 1; i++) {
 		// 		if ((tmp >> (tree_height - 2 - i)) & 1) {
 		// 			diff[j] = i; // find the first difference
 		// 			min_i = std::min(min_i, (uint32_t)i);
@@ -976,6 +960,21 @@ public:
 		// 		}
 		// 	}
 		// }
+
+		for(int j = 0; j < S; j++) {
+			diff[j] = tree_height - 1;
+			uint32_t tmp = w[j] ^ choice_pos[j];
+			if (tmp != 0) {
+				// find the first difference
+				diff[j] = __builtin_clz(tmp) + tree_height - 33;
+				min_i = std::min(min_i, diff[j]);
+			}
+			for (int i = 0; i < diff[j]; i++) {
+				if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+					acc[j] ^= path_sum[i*S + j];
+				}
+			}
+		}
 		if (flag < 1000000) acc_time_log("batch 1st loop");
 
 		alignas(64) block s[2 * S];
