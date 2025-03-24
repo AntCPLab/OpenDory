@@ -1065,16 +1065,16 @@ public:
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
 		static int flag = 0;
-		alignas(16) uint32_t direction[S];
-		for(int i = 0; i < S; i++) {
-			direction[i] = w[i] <= choice_pos[i];
-		}
-		// __mmask direction[S/4];
-		// for(int i = 0, j = 0; i < S; i+=4, j++) {
-		// 	__m128i w_pack = _mm_loadu_epi32((void const*)&w[i]);
-		// 	__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[i]);
-		// 	direction[j] = _mm_cmple_epi32_mask(w_pack, choice_pack);
+		// alignas(16) uint32_t direction[S];
+		// for(int i = 0; i < S; i++) {
+		// 	direction[i] = w[i] <= choice_pos[i];
 		// }
+		__mmask8 direction[S/4];
+		for(int i = 0; i < S; i+=4) {
+			__m128i w_pack = _mm_loadu_epi32((void const*)&w[i]);
+			__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[i]);
+			direction[i/4] = double_mask(_mm_cmple_epi32_mask(w_pack, choice_pack));
+		}
 
 		alignas(64) block s[2 * S];
 		alignas(64) block to_expand[S];
@@ -1096,10 +1096,10 @@ public:
 
 				__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
 
-				__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
-				__mmask8 conds = double_mask(_mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1)));
-				// __mmask8 shifted = _mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
-				// __mmask8 conds = double_mask(shifted);
+				// __m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+				// __mmask8 conds = double_mask(_mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1)));
+				__mmask8 shifted = _mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+				__mmask8 conds = double_mask(shifted);
 
 				// to_expand[j] = cond ? s[S+j] : s[j]
 				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
@@ -1110,12 +1110,13 @@ public:
 
 				// acc[j] ^= (cond^direction) ? 0 : (cond ? s[j] : s[S+j])
 				__m512i s_tmp = _mm512_mask_blend_epi64(conds, s_high, s_low);
-				__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
-				__mmask8 dir_conds = double_mask(_mm_cmpeq_epi32_mask(shifted, dir_pack));
-				// __mmask8 dir_conds = _kxor_mask8(shifted, direction[j/4]);
+				// __m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
+				// __mmask8 dir_conds = double_mask(_mm_cmpeq_epi32_mask(shifted, dir_pack));
+				__mmask8 dir_conds = _kxor_mask8(conds, direction[j/4]);
 				__m512i acced = _mm512_mask_blend_epi64(diff_conds, ps_pack, s_tmp);
 				acced = _mm512_mask_blend_epi64(_kxor_mask8(prev_diff_conds, diff_conds), acced, _mm512_setzero_si512());
-				acced = _mm512_mask_blend_epi64(dir_conds, _mm512_setzero_si512(), acced);
+				// acced = _mm512_mask_blend_epi64(dir_conds, _mm512_setzero_si512(), acced);
+				acced = _mm512_mask_blend_epi64(dir_conds, acced, _mm512_setzero_si512());
 				__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
 				cur = _mm512_xor_si512(cur, acced);
 				_mm512_storeu_epi32((void*)&acc[j], cur);
@@ -1138,9 +1139,8 @@ public:
 		// }
 		for (int i = 0; i < S; i+=4) {
 			__m128i diff_pack = _mm_load_epi32((void const*)&diff[i]);
-			__m128i dir_pack = _mm_load_epi32((void const*)&direction[i]);
-			__mmask8 dir_cond = double_mask(_mm_cmpeq_epi32_mask(dir_pack, _mm_set1_epi32(1)));
 			__mmask8 diff_cond = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
+			__mmask8 dir_cond = direction[i/4];
 			
 			__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[(tree_height-1)*S + i]);
 			__m512i leaf_pack = _mm512_load_epi32((void const*)&to_expand[i]);
