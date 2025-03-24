@@ -863,6 +863,7 @@ public:
 			s[i] = seed[i];
 			s[S + i] = Delta_f2k ^ seed[i];
 		}
+		if (flag < 1000000) acc_time_log("batch sender 3rd loop");
 		for (int i = tree_height - 2; i >= 0; i--) {
 #ifdef __AVX512F__
 			for (int j = 0; j < S; j+=4) {
@@ -901,6 +902,7 @@ public:
 			if (i == 0) break; // don't expand beyond the last layer
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
+		if (flag < 1000000) acc_time_log("batch sender 3rd loop");
 		for (size_t i = 0; i < S; i++) {
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
@@ -1075,25 +1077,23 @@ public:
 		alignas(64) block s[2 * S];
 		alignas(64) block to_expand[S];
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
-		alignas(16) uint32_t diff[S];
-		memset(diff, 0, S * sizeof(uint32_t));
+		__mmask8 diff[S/4];
+		memset(diff, 0, S/4 * sizeof(__mmask8));
 		for (int i = 0; i < tree_height - 1; i++) {
 			for (int j = 0; j < S; j+=4) {
 				__m128i w_pack = _mm_loadu_epi32((void const*)&w[j]);
 				__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[j]);
 				__m128i tmp = _mm_xor_si128(w_pack, choice_pack);
-				__m128i diff_pack = _mm_load_epi32((void const*)&diff[j]);
-				__mmask8 prev_diff_conds = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
-				diff_pack = _mm_or_si128(
-					_mm_and_si128(_mm_srli_epi32(tmp, tree_height-2-i), _mm_set1_epi32(1)), 
-					diff_pack);
-				__mmask8 diff_conds = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
-				_mm_store_epi32((void*)&diff[j], diff_pack);
+				
+				__mmask8 prev_diff_conds = diff[j/4];
+				__mmask8 diff_conds = _kor_mask8(
+					double_mask(_mm_test_epi32_mask(_mm_srli_epi32(tmp, tree_height-2-i), _mm_set1_epi32(1))), 
+					prev_diff_conds);
+				diff[j/4] = diff_conds;
 
 				__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
 
-				__mmask8 w_cond = _mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
-				w_cond = double_mask(w_cond);
+				__mmask8 w_cond = double_mask(_mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1)));
 
 				// to_expand[j] = cond ? s[S+j] : s[j]
 				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
@@ -1129,8 +1129,7 @@ public:
 		// 		acc[i] ^= path_sum[(tree_height-1)*S + i];
 		// }
 		for (int i = 0; i < S; i+=4) {
-			__m128i diff_pack = _mm_load_epi32((void const*)&diff[i]);
-			__mmask8 diff_cond = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
+			__mmask8 diff_cond = diff[i/4];
 			__mmask8 dir_cond = direction[i/4];
 			
 			__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[(tree_height-1)*S + i]);
