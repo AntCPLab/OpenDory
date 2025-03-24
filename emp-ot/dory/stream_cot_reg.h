@@ -10,6 +10,8 @@
 #include <list>
 #include <utility>
 
+#define __AVX512F__
+
 using namespace emp;
 using std::future;
 
@@ -917,6 +919,149 @@ public:
 	}
 
 	// compute sum of all leaves with index <= w for tree `tree_idx`
+	// template<int S>
+	// void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
+	// 	static int flag = 0;
+	// 	alignas(16) uint32_t direction[S];
+	// 	for(int i = 0; i < S; i++) {
+	// 		direction[i] = w[i] <= choice_pos[i];
+	// 	}
+
+	// 	alignas(16) uint32_t diff[S];
+	// 	uint32_t min_i = tree_height - 1;
+	// 	// for(int j = 0; j < S; j++) {
+	// 	// 	diff[j] = tree_height - 1;
+	// 	// 	uint32_t tmp = w[j] ^ choice_pos[j];
+	// 	// 	for (int i = 0; i < tree_height - 1; i++) {
+	// 	// 		if ((tmp >> (tree_height - 2 - i)) & 1) {
+	// 	// 			diff[j] = i; // find the first difference
+	// 	// 			min_i = std::min(min_i, (uint32_t)i);
+	// 	// 			break;
+	// 	// 		}
+	// 	// 		if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+	// 	// 			acc[j] ^= path_sum[i*S + j];
+	// 	// 		}
+	// 	// 	}
+	// 	// }
+	// 	if (flag < 1000000) acc_time_log("batch recver 1st loop");
+	// 	// for(int j = 0; j < S; j++) {
+	// 	// 	uint32_t tmp = w[j] ^ choice_pos[j];
+	// 	// 	// find the first difference
+	// 	// 	diff[j] = __builtin_clz(tmp) + tree_height - 33;
+	// 	// 	min_i = std::min(min_i, diff[j]);
+	// 	// 	for (int i = 0; i < diff[j]; i++) {
+	// 	// 		if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+	// 	// 			acc[j] ^= path_sum[i*S + j];
+	// 	// 		}
+	// 	// 	}
+	// 	// }
+	// 	__m512i v_min = _mm512_set1_epi32(UINT32_MAX);
+	// 	// This requires S to be a multiple of 16
+	// 	for(int j = 0; j < S; j+=16) {
+	// 		// find the first difference
+	// 		__m512i w_pack = _mm512_loadu_epi32((void const*)&w[j]);
+	// 		__m512i choice_pack = _mm512_loadu_epi32((void const*)&choice_pos[j]);
+	// 		__m512i tmp = _mm512_xor_si512(w_pack, choice_pack);
+	// 		__m512i diff_pack = _mm512_add_epi32(_mm512_lzcnt_epi32(tmp), _mm512_set1_epi32(tree_height-33));
+	// 		_mm512_store_epi32((void*)&diff[j], diff_pack);
+	// 		// minimum diff
+	// 		v_min = _mm512_min_epu32(v_min, diff_pack);
+	// 	}
+	// 	min_i = _mm512_reduce_min_epu32(v_min);
+	// 	// for (int i = 0; i < tree_height - 1; i++) {
+	// 	// 	for (int j = 0; j < S; j+=4) {
+	// 	// 		// load w[j..j+3]
+	// 	// 		__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
+	// 	// 		__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+	// 	// 		__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
+	// 	// 		__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, dir_pack);
+	// 	// 		conds = double_mask(conds);
+
+	// 	// 		// load diff[j..j+3]
+	// 	// 		__m128i diff_pack = _mm_load_si128((__m128i*)&diff[j]);
+	// 	// 		__mmask8 diff_conds = _mm_cmp_epi32_mask(_mm_set1_epi32(i), diff_pack, 1);
+	// 	// 		conds = _kand_mask8(conds, double_mask(diff_conds));
+
+	// 	// 		__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
+	// 	// 		__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), ps_pack);
+	// 	// 		__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
+	// 	// 		cur = _mm512_xor_si512(cur, acced);
+	// 	// 		_mm512_storeu_epi32((void*)&acc[j], cur);
+	// 	// 	}
+	// 	// }
+	// 	for(int j = 0; j < S; j++) {
+	// 		for (int i = 0; i < diff[j]; i++) {
+	// 			if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+	// 				acc[j] ^= path_sum[i*S + j];
+	// 			}
+	// 		}
+	// 	}
+
+	// 	if (flag < 1000000) acc_time_log("batch recver 1st loop");
+
+	// 	alignas(64) block s[2 * S];
+	// 	alignas(64) block to_expand[S];
+	// 	if (flag < 1000000) acc_time_log("batch recver 2nd loop");
+	// 	for (int i = 0; i < S; i++) {
+	// 		if (diff[i] < tree_height - 2)
+	// 			to_expand[i] = path_sum[diff[i]*S + i];
+	// 		// else if ((diff[i] == tree_height - 2) && direction[i])
+	// 		// 	acc[i] ^= path_sum[diff[i]*S + i];
+	// 		// else if (direction[i])
+	// 		// 	acc[i] ^= path_sum[(tree_height-1)*S + i];
+	// 	}
+	// 	if (flag < 1000000) acc_time_log("batch recver 2nd loop");
+	// 	if (flag < 1000000) acc_time_log("batch recver 3rd loop");
+	// 	for (int i = min_i + 1; i < tree_height - 1; i++) {
+	// 		ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
+	// 		for (int j = 0; j < S; j+=4) {
+	// 			// load diff[j..j+3]
+	// 			__m128i diff_pack = _mm_load_si128((__m128i*)&diff[j]);
+	// 			__mmask8 diff_conds = _mm_cmp_epi32_mask(diff_pack, _mm_set1_epi32(i), 1);
+	// 			diff_conds = double_mask(diff_conds);
+
+	// 			// load w[j..j+3]
+	// 			__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
+	// 			__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+	// 			__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1));
+	// 			conds = double_mask(conds);
+
+	// 			// to_expand[j] = cond ? s[S+j] : s[j]
+	// 			__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
+	// 			__m512i s_high = _mm512_load_epi32((void const*)&s[S+j]);
+	// 			__m512i expanded = _mm512_mask_blend_epi64(conds, s_low, s_high);
+	// 			__m512i cur_expand = _mm512_load_epi32((void const*)&to_expand[j]);
+	// 			expanded = _mm512_mask_blend_epi64(diff_conds, cur_expand, expanded);
+	// 			_mm512_store_epi32((void*)&to_expand[j], expanded);
+
+	// 			// acc[j] ^= (cond^direction) ? 0 : (cond ? s[j] : s[S+j])
+	// 			__m512i s_tmp = _mm512_mask_blend_epi64(conds, s_high, s_low);
+	// 			__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
+	// 			conds = _kand_mask8(double_mask(_mm_cmpeq_epi32_mask(shifted, dir_pack)), diff_conds);
+	// 			__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), s_tmp);
+	// 			__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
+	// 			cur = _mm512_xor_si512(cur, acced);
+	// 			_mm512_storeu_epi32((void*)&acc[j], cur);
+	// 		}
+	// 	}
+	// 	if (flag < 1000000) acc_time_log("batch recver 3rd loop");
+	// 	if (flag < 1000000) acc_time_log("batch recver 4th loop");
+	// 	for (int i = 0; i < S; i++) {
+	// 		// if (direction[i] && diff[i] < tree_height - 2)
+	// 		// 	acc[i] ^= s[(w[i] & 1) * S + i];
+	// 		int d = __builtin_clz(w[i] ^ choice_pos[i]) + tree_height - 33;
+	// 		if (direction[i] && d < tree_height - 2)
+	// 			acc[i] ^= s[(w[i] & 1) * S + i];
+	// 		if (direction[i] && d == tree_height - 2)
+	// 			acc[i] ^= path_sum[(tree_height-2)*S + i];	
+	// 		if (direction[i] && d == tree_height - 1)
+	// 			acc[i] ^= path_sum[(tree_height-1)*S + i];
+	// 	}
+	// 	if (flag < 1000000) acc_time_log("batch recver 4th loop");
+	// 	flag++;
+	// }
+
+	// compute sum of all leaves with index <= w for tree `tree_idx`
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
 		static int flag = 0;
@@ -924,129 +1069,90 @@ public:
 		for(int i = 0; i < S; i++) {
 			direction[i] = w[i] <= choice_pos[i];
 		}
-
-		alignas(16) uint32_t diff[S];
-		uint32_t min_i = tree_height - 1;
-		// for(int j = 0; j < S; j++) {
-		// 	diff[j] = tree_height - 1;
-		// 	uint32_t tmp = w[j] ^ choice_pos[j];
-		// 	for (int i = 0; i < tree_height - 1; i++) {
-		// 		if ((tmp >> (tree_height - 2 - i)) & 1) {
-		// 			diff[j] = i; // find the first difference
-		// 			min_i = std::min(min_i, (uint32_t)i);
-		// 			break;
-		// 		}
-		// 		if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
-		// 			acc[j] ^= path_sum[i*S + j];
-		// 		}
-		// 	}
+		// __mmask direction[S/4];
+		// for(int i = 0, j = 0; i < S; i+=4, j++) {
+		// 	__m128i w_pack = _mm_loadu_epi32((void const*)&w[i]);
+		// 	__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[i]);
+		// 	direction[j] = _mm_cmple_epi32_mask(w_pack, choice_pack);
 		// }
-		if (flag < 1000000) acc_time_log("batch recver 1st loop");
-		// for(int j = 0; j < S; j++) {
-		// 	uint32_t tmp = w[j] ^ choice_pos[j];
-		// 	// find the first difference
-		// 	diff[j] = __builtin_clz(tmp) + tree_height - 33;
-		// 	min_i = std::min(min_i, diff[j]);
-		// 	for (int i = 0; i < diff[j]; i++) {
-		// 		if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
-		// 			acc[j] ^= path_sum[i*S + j];
-		// 		}
-		// 	}
-		// }
-		__m512i v_min = _mm512_set1_epi32(UINT32_MAX);
-		// This requires S to be a multiple of 16
-		for(int j = 0; j < S; j+=16) {
-			// find the first difference
-			__m512i w_pack = _mm512_loadu_epi32((void const*)&w[j]);
-			__m512i choice_pack = _mm512_loadu_epi32((void const*)&choice_pos[j]);
-			__m512i tmp = _mm512_xor_si512(w_pack, choice_pack);
-			__m512i diff_pack = _mm512_add_epi32(_mm512_lzcnt_epi32(tmp), _mm512_set1_epi32(tree_height-33));
-			_mm512_store_epi32((void*)&diff[j], diff_pack);
-			// minimum diff
-			v_min = _mm512_min_epu32(v_min, diff_pack);
-		}
-		min_i = _mm512_reduce_min_epu32(v_min);
-		// for (int i = 0; i < tree_height - 1; i++) {
-		// 	for (int j = 0; j < S; j+=4) {
-		// 		// load w[j..j+3]
-		// 		__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
-		// 		__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
-		// 		__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
-		// 		__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, dir_pack);
-		// 		conds = double_mask(conds);
-
-		// 		// load diff[j..j+3]
-		// 		__m128i diff_pack = _mm_load_si128((__m128i*)&diff[j]);
-		// 		__mmask8 diff_conds = _mm_cmp_epi32_mask(_mm_set1_epi32(i), diff_pack, 1);
-		// 		conds = _kand_mask8(conds, double_mask(diff_conds));
-
-		// 		__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
-		// 		__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), ps_pack);
-		// 		__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
-		// 		cur = _mm512_xor_si512(cur, acced);
-		// 		_mm512_storeu_epi32((void*)&acc[j], cur);
-		// 	}
-		// }
-		for(int j = 0; j < S; j++) {
-			for (int i = 0; i < diff[j]; i++) {
-				if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
-					acc[j] ^= path_sum[i*S + j];
-				}
-			}
-		}
-
-		if (flag < 1000000) acc_time_log("batch recver 1st loop");
 
 		alignas(64) block s[2 * S];
 		alignas(64) block to_expand[S];
-		if (flag < 1000000) acc_time_log("batch recver 2nd loop");
-		for (int i = 0; i < S; i++) {
-			if (diff[i] < tree_height - 2)
-				to_expand[i] = path_sum[diff[i]*S + i];
-			else if ((diff[i] == tree_height - 2) && direction[i])
-				acc[i] ^= path_sum[diff[i]*S + i];
-			else if (direction[i])
-				acc[i] ^= path_sum[(tree_height-1)*S + i];
-		}
-		if (flag < 1000000) acc_time_log("batch recver 2nd loop");
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
-		for (int i = min_i + 1; i < tree_height - 1; i++) {
-			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
+		alignas(16) uint32_t diff[S];
+		memset(diff, 0, S * sizeof(uint32_t));
+		for (int i = 0; i < tree_height - 1; i++) {
 			for (int j = 0; j < S; j+=4) {
-				// load diff[j..j+3]
-				__m128i diff_pack = _mm_load_si128((__m128i*)&diff[j]);
-				__mmask8 diff_conds = _mm_cmp_epi32_mask(diff_pack, _mm_set1_epi32(i), 1);
-				diff_conds = double_mask(diff_conds);
+				__m128i w_pack = _mm_loadu_epi32((void const*)&w[j]);
+				__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[j]);
+				__m128i tmp = _mm_xor_si128(w_pack, choice_pack);
+				__m128i diff_pack = _mm_load_epi32((void const*)&diff[j]);
+				__mmask8 prev_diff_conds = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
+				diff_pack = _mm_or_si128(
+					_mm_and_si128(_mm_srli_epi32(tmp, tree_height-2-i), _mm_set1_epi32(1)), 
+					diff_pack);
+				__mmask8 diff_conds = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
+				_mm_store_epi32((void*)&diff[j], diff_pack);
 
-				// load w[j..j+3]
-				__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
+				__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
+
 				__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
-				__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1));
-				conds = double_mask(conds);
+				__mmask8 conds = double_mask(_mm_cmpeq_epi32_mask(shifted, _mm_set1_epi32(1)));
+				// __mmask8 shifted = _mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+				// __mmask8 conds = double_mask(shifted);
 
 				// to_expand[j] = cond ? s[S+j] : s[j]
 				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
 				__m512i s_high = _mm512_load_epi32((void const*)&s[S+j]);
 				__m512i expanded = _mm512_mask_blend_epi64(conds, s_low, s_high);
-				__m512i cur_expand = _mm512_load_epi32((void const*)&to_expand[j]);
-				expanded = _mm512_mask_blend_epi64(diff_conds, cur_expand, expanded);
+				expanded = _mm512_mask_blend_epi64(prev_diff_conds, ps_pack, expanded);
 				_mm512_store_epi32((void*)&to_expand[j], expanded);
 
 				// acc[j] ^= (cond^direction) ? 0 : (cond ? s[j] : s[S+j])
 				__m512i s_tmp = _mm512_mask_blend_epi64(conds, s_high, s_low);
 				__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
-				conds = _kand_mask8(double_mask(_mm_cmpeq_epi32_mask(shifted, dir_pack)), diff_conds);
-				__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), s_tmp);
+				__mmask8 dir_conds = double_mask(_mm_cmpeq_epi32_mask(shifted, dir_pack));
+				// __mmask8 dir_conds = _kxor_mask8(shifted, direction[j/4]);
+				__m512i acced = _mm512_mask_blend_epi64(diff_conds, ps_pack, s_tmp);
+				acced = _mm512_mask_blend_epi64(_kxor_mask8(prev_diff_conds, diff_conds), acced, _mm512_setzero_si512());
+				acced = _mm512_mask_blend_epi64(dir_conds, _mm512_setzero_si512(), acced);
 				__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
 				cur = _mm512_xor_si512(cur, acced);
 				_mm512_storeu_epi32((void*)&acc[j], cur);
 			}
+			if (i == tree_height - 2) break;
+			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
-		for (int i = 0; i < S; i++) {
-			if (direction[i] && diff[i] < tree_height - 2)
-				acc[i] ^= s[(w[i] & 1) * S + i];
+		if (flag < 1000000) acc_time_log("batch recver 4th loop");
+		// for (int i = 0; i < S; i++) {
+		// 	// // if (direction[i] && diff[i] < tree_height - 2)
+		// 	// // 	acc[i] ^= s[(w[i] & 1) * S + i];
+		// 	// int d = __builtin_clz(w[i] ^ choice_pos[i]) + tree_height - 33;
+		// 	// // if (direction[i] && d <= tree_height - 2)
+		// 	// // 	acc[i] ^= to_expand[i];
+		// 	if (direction[i] && diff[i])
+		// 		acc[i] ^= to_expand[i];
+		// 	else if (direction[i])
+		// 		acc[i] ^= path_sum[(tree_height-1)*S + i];
+		// }
+		for (int i = 0; i < S; i+=4) {
+			__m128i diff_pack = _mm_load_epi32((void const*)&diff[i]);
+			__m128i dir_pack = _mm_load_epi32((void const*)&direction[i]);
+			__mmask8 dir_cond = double_mask(_mm_cmpeq_epi32_mask(dir_pack, _mm_set1_epi32(1)));
+			__mmask8 diff_cond = double_mask(_mm_cmpeq_epi32_mask(diff_pack, _mm_set1_epi32(1)));
+			
+			__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[(tree_height-1)*S + i]);
+			__m512i leaf_pack = _mm512_load_epi32((void const*)&to_expand[i]);
+
+			__m512i acced = _mm512_mask_blend_epi64(diff_cond, ps_pack, leaf_pack);
+			acced = _mm512_mask_blend_epi64(dir_cond, _mm512_setzero_si512(), acced);
+			
+			__m512i cur = _mm512_loadu_epi32((void const*)&acc[i]);
+			cur = _mm512_xor_si512(cur, acced);
+			_mm512_storeu_epi32((void*)&acc[i], cur);
 		}
+		if (flag < 1000000) acc_time_log("batch recver 4th loop");
 		flag++;
 	}
 
