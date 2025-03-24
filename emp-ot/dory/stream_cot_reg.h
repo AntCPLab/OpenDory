@@ -503,7 +503,6 @@ public:
 			bool correction[EVAL_SIZE];
 			memset(correction, 0, EVAL_SIZE);
 			for (int y = 0; y < d; y++) {
-				if (flag < 1000000) acc_time_log("sender batch init");
 				for (int m = 0; m < EVAL_SIZE; m++) {
 					int index = *r & mask;
 					index = index >= idx_max? index-idx_max : index;
@@ -514,10 +513,7 @@ public:
 					w[m] = wj;
 					correction[m] ^= uj & 1;
 				}
-				if (flag < 1000000) acc_time_log("sender batch init");
-				if (flag < 1000000) acc_time_log("sender batch acc");
 				batch_sender_acc_left<EVAL_SIZE>(data + i, seed, w);
-				if (flag < 1000000) acc_time_log("sender batch acc");
 			}
 			for (int m = 0; m < EVAL_SIZE; m++) {
 				data[i+m] ^= ch[correction[m]];
@@ -528,30 +524,20 @@ public:
 			uint32_t w[EVAL_SIZE];
 			block* path_sum = new block[tree_height*EVAL_SIZE];
 			for (int y = 0; y < d; y++) {
-				if (flag < 1000000) acc_time_log("recver batch int");
 				for (int m = 0; m < EVAL_SIZE; m++) {
-					if (flag < 10000) acc_time_log("recver batch int test");
-					if (flag < 10000) acc_time_log("recver batch int test");
-					if (flag < 10000) acc_time_log("recver batch int prepare");
 					int index = *r & mask;
 					index = index >= idx_max? index-idx_max : index;
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					++r;
 					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
 					// data[i+m] ^= recvers[batch_tree_idx]->acc_left(internal_tree_idx, wj);
-					if (flag < 10000) acc_time_log("recver batch int prepare");
 
-					if (flag < 10000) acc_time_log("recver batch int access");
 					choice[m] = recvers[batch_tree_idx]->choice_pos[internal_tree_idx];
 					w[m] = wj;
 					for(int i = 0; i < tree_height; i++)
 						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*B + internal_tree_idx];
-					if (flag < 10000) acc_time_log("recver batch int access");
 				}
-				if (flag < 1000000) acc_time_log("recver batch int");
-				if (flag < 1000000) acc_time_log("recver batch acc");
 				batch_recver_acc_left<EVAL_SIZE>(data + i, path_sum, choice, w);
-				if (flag < 1000000) acc_time_log("recver batch acc");
 			}
 			delete[] path_sum;
 		}
@@ -875,7 +861,6 @@ public:
 			s[i] = seed[i];
 			s[S + i] = Delta_f2k ^ seed[i];
 		}
-		if (flag < 1000000) acc_time_log("batch sender outer loop");
 		for (int i = tree_height - 2; i >= 0; i--) {
 #ifdef __AVX512F__
 			for (int j = 0; j < S; j+=4) {
@@ -914,7 +899,6 @@ public:
 			if (i == 0) break; // don't expand beyond the last layer
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
-		if (flag < 1000000) acc_time_log("batch sender outer loop");
 		for (size_t i = 0; i < S; i++) {
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
@@ -937,15 +921,12 @@ public:
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
 		static int flag = 0;
 		alignas(16) uint32_t direction[S];
-		if (flag < 1000000) acc_time_log("batch init");
 		for(int i = 0; i < S; i++) {
 			direction[i] = w[i] <= choice_pos[i];
 		}
-		if (flag < 1000000) acc_time_log("batch init");
 
 		alignas(16) uint32_t diff[S];
 		uint32_t min_i = tree_height - 1;
-		if (flag < 1000000) acc_time_log("batch 1st loop");
 		// for(int j = 0; j < S; j++) {
 		// 	diff[j] = tree_height - 1;
 		// 	uint32_t tmp = w[j] ^ choice_pos[j];
@@ -960,26 +941,65 @@ public:
 		// 		}
 		// 	}
 		// }
+		if (flag < 1000000) acc_time_log("batch recver 1st loop");
+		// for(int j = 0; j < S; j++) {
+		// 	uint32_t tmp = w[j] ^ choice_pos[j];
+		// 	// find the first difference
+		// 	diff[j] = __builtin_clz(tmp) + tree_height - 33;
+		// 	min_i = std::min(min_i, diff[j]);
+		// 	for (int i = 0; i < diff[j]; i++) {
+		// 		if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
+		// 			acc[j] ^= path_sum[i*S + j];
+		// 		}
+		// 	}
+		// }
+		__m512i v_min = _mm512_set1_epi32(UINT32_MAX);
+		// This requires S to be a multiple of 16
+		for(int j = 0; j < S; j+=16) {
+			// find the first difference
+			__m512i w_pack = _mm512_loadu_epi32((void const*)&w[j]);
+			__m512i choice_pack = _mm512_loadu_epi32((void const*)&choice_pos[j]);
+			__m512i tmp = _mm512_xor_si512(w_pack, choice_pack);
+			__m512i diff_pack = _mm512_add_epi32(_mm512_lzcnt_epi32(tmp), _mm512_set1_epi32(tree_height-33));
+			_mm512_store_epi32((void*)&diff[j], diff_pack);
+			// minimum diff
+			v_min = _mm512_min_epu32(v_min, diff_pack);
+		}
+		min_i = _mm512_reduce_min_epu32(v_min);
+		// for (int i = 0; i < tree_height - 1; i++) {
+		// 	for (int j = 0; j < S; j+=4) {
+		// 		// load w[j..j+3]
+		// 		__m128i w_pack = _mm_loadu_si128((__m128i*)&w[j]);
+		// 		__m128i shifted = _mm_and_si128(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1));
+		// 		__m128i dir_pack = _mm_load_si128((__m128i*)&direction[j]);
+		// 		__mmask8 conds = _mm_cmpeq_epi32_mask(shifted, dir_pack);
+		// 		conds = double_mask(conds);
 
+		// 		// load diff[j..j+3]
+		// 		__m128i diff_pack = _mm_load_si128((__m128i*)&diff[j]);
+		// 		__mmask8 diff_conds = _mm_cmp_epi32_mask(_mm_set1_epi32(i), diff_pack, 1);
+		// 		conds = _kand_mask8(conds, double_mask(diff_conds));
+
+		// 		__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
+		// 		__m512i acced = _mm512_mask_blend_epi64(conds, _mm512_setzero_si512(), ps_pack);
+		// 		__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
+		// 		cur = _mm512_xor_si512(cur, acced);
+		// 		_mm512_storeu_epi32((void*)&acc[j], cur);
+		// 	}
+		// }
 		for(int j = 0; j < S; j++) {
-			diff[j] = tree_height - 1;
-			uint32_t tmp = w[j] ^ choice_pos[j];
-			if (tmp != 0) {
-				// find the first difference
-				diff[j] = __builtin_clz(tmp) + tree_height - 33;
-				min_i = std::min(min_i, diff[j]);
-			}
 			for (int i = 0; i < diff[j]; i++) {
 				if (((w[j] >> (tree_height - 2 - i)) & 1) == direction[j]) {
 					acc[j] ^= path_sum[i*S + j];
 				}
 			}
 		}
-		if (flag < 1000000) acc_time_log("batch 1st loop");
+
+		if (flag < 1000000) acc_time_log("batch recver 1st loop");
 
 		alignas(64) block s[2 * S];
 		alignas(64) block to_expand[S];
-		if (flag < 1000000) acc_time_log("batch 2nd loop");
+		if (flag < 1000000) acc_time_log("batch recver 2nd loop");
 		for (int i = 0; i < S; i++) {
 			if (diff[i] < tree_height - 2)
 				to_expand[i] = path_sum[diff[i]*S + i];
@@ -988,8 +1008,8 @@ public:
 			else if (direction[i])
 				acc[i] ^= path_sum[(tree_height-1)*S + i];
 		}
-		if (flag < 1000000) acc_time_log("batch 2nd loop");
-		if (flag < 1000000) acc_time_log("batch 3rd loop");
+		if (flag < 1000000) acc_time_log("batch recver 2nd loop");
+		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 		for (int i = min_i + 1; i < tree_height - 1; i++) {
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 			for (int j = 0; j < S; j+=4) {
@@ -1022,13 +1042,11 @@ public:
 				_mm512_storeu_epi32((void*)&acc[j], cur);
 			}
 		}
-		if (flag < 1000000) acc_time_log("batch 3rd loop");
-		if (flag < 1000000) acc_time_log("batch end");
+		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 		for (int i = 0; i < S; i++) {
 			if (direction[i] && diff[i] < tree_height - 2)
 				acc[i] ^= s[(w[i] & 1) * S + i];
 		}
-		if (flag < 1000000) acc_time_log("batch end");
 		flag++;
 	}
 
