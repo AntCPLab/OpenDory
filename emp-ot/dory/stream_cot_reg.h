@@ -951,14 +951,16 @@ public:
 				// otherwise, taken from previous expansion: to_expand[j] = w_cond ? s[S+j] : s[j]
 				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
 				__m512i s_high = _mm512_load_epi32((void const*)&s[S+j]);
-				__m512i expanded = _mm512_mask_blend_epi64(w_cond, s_low, s_high);
-				expanded = _mm512_mask_blend_epi64(prev_diff_conds, ps_pack, expanded);
+				__m512i s_tmp = _mm512_mask_blend_epi64(w_cond, s_low, s_high);
+				__m512i expanded = _mm512_mask_blend_epi64(prev_diff_conds, ps_pack, s_tmp);
+				__m512i prev_to_expand = _mm512_load_epi32((void const*)&to_expand[j]);
 				_mm512_store_epi32((void*)&to_expand[j], expanded);
 
 				// if this is before 1st diff (prev_diff and diff are both 0s), should be taken from `path_sum` or just 0: `(w_cond^direction) ? 0 : path_sum`;
 				// if this is exactly 1st diff (prev_diff = 0 and diff = 1), should be 0;
 				// if this is after 1st diff (prev_diff and diff are both 1s), should be taken from `s` or just 0: `(w_cond^direction) ? 0 : (w_cond ? s[j] : s[S+j])`.
-				__m512i s_tmp = _mm512_mask_blend_epi64(w_cond, s_high, s_low);
+				// s_tmp = _mm512_mask_blend_epi64(w_cond, s_high, s_low);
+				s_tmp = _mm512_xor_si512(prev_to_expand, s_tmp);
 				__mmask8 dir_conds = _kxor_mask8(w_cond, direction[j/4]);
 				__m512i acced = _mm512_mask_blend_epi64(diff_conds, ps_pack, s_tmp);
 				acced = _mm512_mask_blend_epi64(_kor_mask8(_kxor_mask8(prev_diff_conds, diff_conds), dir_conds), acced, _mm512_setzero_si512());
