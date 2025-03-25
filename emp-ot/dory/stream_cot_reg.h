@@ -499,11 +499,11 @@ public:
 		block ch[2] = {zero_block, Delta_f2k};
 		acc_time_log("eval");
 		memset(data+i, 0, EVAL_SIZE*sizeof(block));
+		bool correction[EVAL_SIZE];
+		memset(correction, 0, EVAL_SIZE);
 		if (party == ALICE) {
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
-			bool correction[EVAL_SIZE];
-			memset(correction, 0, EVAL_SIZE);
 			for (int y = 0; y < d; y++) {
 				for (int m = 0; m < EVAL_SIZE; m++) {
 					int index = *r & mask;
@@ -538,6 +538,8 @@ public:
 					w[m] = wj;
 					for(int i = 0; i < tree_height; i++)
 						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*B + internal_tree_idx];
+
+					correction[m] ^= ((uj & 1) ^ (wj >= choice[m]));
 				}
 				batch_recver_acc_left<EVAL_SIZE>(data + i, path_sum, choice, w);
 			}
@@ -548,22 +550,10 @@ public:
 			data[i+x] &= minustwo;
 		acc_time_log("choice");
 		if (party == BOB) {
-			r = (uint32_t*)(tmp);
-			bool choices[EVAL_SIZE];
-			memset(choices, 0, EVAL_SIZE);
-			for (int y = 0; y < d; y++) {
-				for (int m = 0; m < EVAL_SIZE; m++) {
-					int index = *r & mask;
-					index = index >= idx_max? index-idx_max : index;
-					int uj = index >> (tree_height - 1), wj = index & leave_mask;
-					++r;
-					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
-					choices[m] ^= ((uj & 1) ^ (wj >= recvers[batch_tree_idx]->choice_pos[internal_tree_idx]));
-				}
-			}
 			for (int m = 0; m < EVAL_SIZE; m++) {
-				if (choices[m])
-					data[i+m] ^= one;
+				// if (correction[m])
+				// 	data[i+m] ^= one;
+				data[i+m] |= _mm_and_si128(_mm_set1_epi32(-correction[m]), one);
 			}
 		}
 		acc_time_log("choice");
