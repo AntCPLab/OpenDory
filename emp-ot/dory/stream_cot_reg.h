@@ -928,20 +928,24 @@ public:
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 		__mmask8 diff[S/4];
 		memset(diff, 0, S/4 * sizeof(__mmask8));
+		__m128i test_mask = _mm_set1_epi32(1 << tree_height-2);
 		for (int i = 0; i < tree_height - 1; i++) {
+			
 			for (int j = 0; j < S; j+=4) {
 				__m128i w_pack = _mm_loadu_epi32((void const*)&w[j]);
 				__m128i wc_pack = _mm_load_epi32((void const*)&wc[j]);
 				
 				__mmask8 prev_diff_conds = diff[j/4];
 				__mmask8 diff_conds = _kor_mask8(
-					double_mask(_mm_test_epi32_mask(_mm_srli_epi32(wc_pack, tree_height-2-i), _mm_set1_epi32(1))), 
+					double_mask(_mm_test_epi32_mask(wc_pack, test_mask)), 
+					// double_mask(_mm_movepi32_mask(_mm_slli_epi32(wc_pack, 33+i-tree_height))), 
 					prev_diff_conds);
 				diff[j/4] = diff_conds;
 
 				__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[i*S + j]);
 
-				__mmask8 w_cond = double_mask(_mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1)));
+				__mmask8 w_cond = double_mask(_mm_test_epi32_mask(w_pack, test_mask));
+				// __mmask8 w_cond = double_mask(_mm_movepi32_mask(_mm_slli_epi32(w_pack, 33+i-tree_height)));
 
 				// if this is NOT after first diff (including the 1st diff), `to_expand` should be taken from `path_sum`;
 				// otherwise, taken from previous expansion: to_expand[j] = w_cond ? s[S+j] : s[j]
@@ -962,6 +966,7 @@ public:
 				cur = _mm512_xor_si512(cur, acced);
 				_mm512_storeu_epi32((void*)&acc[j], cur);
 			}
+			test_mask = _mm_srli_epi32(test_mask, 1);
 			if (i == tree_height - 2) break;
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
