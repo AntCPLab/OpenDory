@@ -1068,10 +1068,12 @@ public:
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
 		static int flag = 0;
 		__mmask8 direction[S/4];
+		alignas(16) uint32_t wc[S];
 		for(int i = 0; i < S; i+=4) {
 			__m128i w_pack = _mm_loadu_epi32((void const*)&w[i]);
 			__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[i]);
 			direction[i/4] = double_mask(_mm_cmple_epi32_mask(w_pack, choice_pack));
+			_mm_store_epi32((void*)&wc[i], _mm_xor_si128(w_pack, choice_pack));
 		}
 
 		alignas(64) block s[2 * S];
@@ -1082,12 +1084,11 @@ public:
 		for (int i = 0; i < tree_height - 1; i++) {
 			for (int j = 0; j < S; j+=4) {
 				__m128i w_pack = _mm_loadu_epi32((void const*)&w[j]);
-				__m128i choice_pack = _mm_loadu_epi32((void const*)&choice_pos[j]);
-				__m128i tmp = _mm_xor_si128(w_pack, choice_pack);
+				__m128i wc_pack = _mm_load_epi32((void const*)&wc[j]);
 				
 				__mmask8 prev_diff_conds = diff[j/4];
 				__mmask8 diff_conds = _kor_mask8(
-					double_mask(_mm_test_epi32_mask(_mm_srli_epi32(tmp, tree_height-2-i), _mm_set1_epi32(1))), 
+					double_mask(_mm_test_epi32_mask(_mm_srli_epi32(wc_pack, tree_height-2-i), _mm_set1_epi32(1))), 
 					prev_diff_conds);
 				diff[j/4] = diff_conds;
 
@@ -1095,19 +1096,21 @@ public:
 
 				__mmask8 w_cond = double_mask(_mm_test_epi32_mask(_mm_srli_epi32(w_pack, tree_height-2-i), _mm_set1_epi32(1)));
 
-				// to_expand[j] = cond ? s[S+j] : s[j]
+				// if this is NOT after first diff (including the 1st diff), `to_expand` should be taken from `path_sum`;
+				// otherwise, taken from previous expansion: to_expand[j] = w_cond ? s[S+j] : s[j]
 				__m512i s_low = _mm512_load_epi32((void const*)&s[j]);
 				__m512i s_high = _mm512_load_epi32((void const*)&s[S+j]);
 				__m512i expanded = _mm512_mask_blend_epi64(w_cond, s_low, s_high);
 				expanded = _mm512_mask_blend_epi64(prev_diff_conds, ps_pack, expanded);
 				_mm512_store_epi32((void*)&to_expand[j], expanded);
 
-				// acc[j] ^= (cond^direction) ? 0 : (cond ? s[j] : s[S+j])
+				// if this is before 1st diff (prev_diff and diff are both 0s), should be taken from `path_sum` or just 0: `(w_cond^direction) ? 0 : path_sum`;
+				// if this is exactly 1st diff (prev_diff = 0 and diff = 1), should be 0;
+				// if this is after 1st diff (prev_diff and diff are both 1s), should be taken from `s` or just 0: `(w_cond^direction) ? 0 : (w_cond ? s[j] : s[S+j])`.
 				__m512i s_tmp = _mm512_mask_blend_epi64(w_cond, s_high, s_low);
 				__mmask8 dir_conds = _kxor_mask8(w_cond, direction[j/4]);
 				__m512i acced = _mm512_mask_blend_epi64(diff_conds, ps_pack, s_tmp);
-				acced = _mm512_mask_blend_epi64(_kxor_mask8(prev_diff_conds, diff_conds), acced, _mm512_setzero_si512());
-				acced = _mm512_mask_blend_epi64(dir_conds, acced, _mm512_setzero_si512());
+				acced = _mm512_mask_blend_epi64(_kor_mask8(_kxor_mask8(prev_diff_conds, diff_conds), dir_conds), acced, _mm512_setzero_si512());
 				__m512i cur = _mm512_loadu_epi32((void const*)&acc[j]);
 				cur = _mm512_xor_si512(cur, acced);
 				_mm512_storeu_epi32((void*)&acc[j], cur);
@@ -1117,24 +1120,18 @@ public:
 		}
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 		if (flag < 1000000) acc_time_log("batch recver 4th loop");
-		// for (int i = 0; i < S; i++) {
-		// 	// // if (direction[i] && diff[i] < tree_height - 2)
-		// 	// // 	acc[i] ^= s[(w[i] & 1) * S + i];
-		// 	// int d = __builtin_clz(w[i] ^ choice_pos[i]) + tree_height - 33;
-		// 	// // if (direction[i] && d <= tree_height - 2)
-		// 	// // 	acc[i] ^= to_expand[i];
-		// 	if (direction[i] && diff[i])
-		// 		acc[i] ^= to_expand[i];
-		// 	else if (direction[i])
-		// 		acc[i] ^= path_sum[(tree_height-1)*S + i];
-		// }
+
 		for (int i = 0; i < S; i+=4) {
 			__mmask8 diff_cond = diff[i/4];
 			__mmask8 dir_cond = direction[i/4];
 			
+			// the leaf corresponding to choice
 			__m512i ps_pack = _mm512_loadu_epi32((void const*)&path_sum[(tree_height-1)*S + i]);
+			// the leaf corresponding to w
 			__m512i leaf_pack = _mm512_load_epi32((void const*)&to_expand[i]);
 
+			// if `direction & diff`, taken dfrom `leaf_pack`;
+			// else if `direction`, taken from `ps_pack`.
 			__m512i acced = _mm512_mask_blend_epi64(diff_cond, ps_pack, leaf_pack);
 			acced = _mm512_mask_blend_epi64(dir_cond, _mm512_setzero_si512(), acced);
 			
