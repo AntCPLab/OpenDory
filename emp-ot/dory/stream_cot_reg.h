@@ -973,7 +973,6 @@ public:
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
 		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
-		if (flag < 1000000) acc_time_log("batch recver 4th loop");
 
 		for (int i = 0; i < S; i+=4) {
 			__mmask8 diff_cond = diff[i/4];
@@ -993,7 +992,6 @@ public:
 			cur = _mm512_xor_si512(cur, acced);
 			_mm512_storeu_epi32((void*)&acc[i], cur);
 		}
-		if (flag < 1000000) acc_time_log("batch recver 4th loop");
 		flag++;
 	}
 
