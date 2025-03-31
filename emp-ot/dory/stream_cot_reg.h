@@ -808,34 +808,6 @@ public:
 	// compute sum of all leaves with index <= w
 	template<int S>
 	block batch_sender_acc_left(const block* seed, const uint32_t* w) {
-		// block acc = zero_block;
-		// block s[2 * B], to_expand[B];
-		// for(size_t i = 0; i < B; i++) {
-		// 	s[i] = seed[i];
-		// 	s[B + i] = Delta_f2k ^ seed[i];
-		// }
-		// acc_time_log("batch_node_expand");
-		// for (int i = tree_height - 2; i >= 0; i--) {
-		// 	if (i==tree_height-2) acc_time_log("loop");
-		// 	for (int j = 0; j < B; j++) {
-		// 		if ((w[j] >> i) & 1) {
-		// 			acc ^= s[j];
-		// 			to_expand[j] = s[B + j];
-		// 		}
-		// 		else {
-		// 			to_expand[j] = s[j];
-		// 		}
-		// 	}
-		// 	if (i==tree_height-2) acc_time_log("loop");
-		// 	if (i == 0) break; // don't expand beyond the last layer
-		// 	if (i==tree_height-2) acc_time_log("exact");
-		// 	ccrh->batch_node_expand(&s[0], &s[B], to_expand);
-		// 	if (i==tree_height-2) acc_time_log("exact");
-		// }
-		// acc_time_log("batch_node_expand");
-		// for (size_t i = 0; i < B; i++)
-		// 	acc ^= s[(w[i] & 1) * B + i];
-		// return acc;
 		block acc[S];
 		memset(acc, 0, S*sizeof(block));
 		batch_sender_acc_left<S>(acc, seed, w);
@@ -853,7 +825,7 @@ public:
 			s[i] = seed[i];
 			s[S + i] = Delta_f2k ^ seed[i];
 		}
-		if (flag < 1000000) acc_time_log("batch sender 3rd loop");
+		// if (flag < 1000000) acc_time_log("batch sender 3rd loop");
 		for (int i = tree_height - 2; i >= 0; i--) {
 #ifdef __AVX512F__
 			for (int j = 0; j < S; j+=4) {
@@ -892,7 +864,7 @@ public:
 			if (i == 0) break; // don't expand beyond the last layer
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
-		if (flag < 1000000) acc_time_log("batch sender 3rd loop");
+		// if (flag < 1000000) acc_time_log("batch sender 3rd loop");
 		for (size_t i = 0; i < S; i++) {
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
@@ -925,7 +897,7 @@ public:
 
 		alignas(64) block s[2 * S];
 		alignas(64) block to_expand[S];
-		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
+		// if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 		__mmask8 diff[S/4];
 		memset(diff, 0, S/4 * sizeof(__mmask8));
 		__m128i test_mask = _mm_set1_epi32(1 << tree_height-2);
@@ -972,7 +944,7 @@ public:
 			if (i == tree_height - 2) break;
 			ccrh->batch_node_expand<S>(&s[0], &s[S], to_expand);
 		}
-		if (flag < 1000000) acc_time_log("batch recver 3rd loop");
+		// if (flag < 1000000) acc_time_log("batch recver 3rd loop");
 
 		for (int i = 0; i < S; i+=4) {
 			__mmask8 diff_cond = diff[i/4];
