@@ -160,7 +160,7 @@ class DoryCCRH { public:
 
 	~DoryCCRH() {
 #ifdef __AVX512F__
-	if (!batch_keys)
+	if (batch_keys)
 		free(batch_keys);
 #endif
 	}
@@ -256,7 +256,7 @@ class DoryPRP { public:
 
 	~DoryPRP() {
 #ifdef __AVX512F__
-	if (!scheduled_key512)
+	if (scheduled_key512)
 		free(scheduled_key512);
 #endif
 	}

@@ -333,7 +333,7 @@ public:
 		// }
 
 		int i = start;
-		for(; i < end-EVAL_SIZE; i+=EVAL_SIZE) {
+		for(; i <= end-EVAL_SIZE; i+=EVAL_SIZE) {
 			__eval4(data, i);
 		}
 		for (; i < end; i++) {
@@ -360,13 +360,13 @@ public:
 	}
 
 	void exec_eval(block* data, int idx) {
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		uint32_t* J;
 		sample_J(&J, ell, idx);
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		*data = zero_block;
-		acc_time_log("eval");
+		data[idx] = zero_block;
+		// acc_time_log("eval");
 		if (party == ALICE) {
 			/* Unbatched impl. */
 			// for (int x = 0; x < ell; x++) {
@@ -390,27 +390,27 @@ public:
 					w[x] = wj;
 					correction ^= uj & 1;
 				}
-				*data ^= batch_sender_acc_left<EVAL_SIZE>(seed, w);
+				data[idx] ^= batch_sender_acc_left<EVAL_SIZE>(seed, w);
 			}
 			for (y = y * EVAL_SIZE; y < ell; y++) {
 				int uj = J[y] >> (tree_height - 1), wj = J[y] & leave_mask;
 				block tmp;
 				senders[uj/B]->acc_left(tmp, uj % B, wj);
-				*data ^= tmp;
+				data[idx] ^= tmp;
 				correction ^= uj & 1;
 			}
 			if (correction)
-				*data ^= Delta_f2k;
+				data[idx] ^= Delta_f2k;
 		}
 		else {
 			for (int x = 0; x < ell; x++) {
 				int uj = J[x] >> (tree_height - 1), wj = J[x] & leave_mask;
-				*data ^= recvers[uj/B]->acc_left(uj % B, wj);
+				data[idx] ^= recvers[uj/B]->acc_left(uj % B, wj);
 			}
 		}
-		acc_time_log("eval");
-		*data &= minustwo;
-		acc_time_log("choice");
+		// acc_time_log("eval");
+		data[idx] &= minustwo;
+		// acc_time_log("choice");
 		if (party == BOB) {
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
@@ -418,22 +418,22 @@ public:
 				choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
 			}
 			if (choice)
-				*data ^= one; 
+				data[idx] ^= one; 
 		}
-		acc_time_log("choice");
+		// acc_time_log("choice");
 		delete ((block*)J);
 	}
 	
 	void exec_eval_batch(block* data, int cnt_start) {
 		block J_blocks[64];
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		uint32_t* J;
 		sample_J_batch((uint32_t*)J_blocks, cnt_start);
 		J = (uint32_t*)(&J_blocks[0]);
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		int leave_mask = (1 << (tree_height - 1)) - 1;
 		memset(data, 0, B*sizeof(block));
-		acc_time_log("eval");
+		// acc_time_log("eval");
 		int stride = (ell + 3) / 4 * 4;
 		if (party == ALICE) {
 			/* Batch impl. */
@@ -465,10 +465,10 @@ public:
 				}
 			}
 		}
-		acc_time_log("eval");
+		// acc_time_log("eval");
 		for (int x = 0; x < B; x++)
 			data[x] &= minustwo;
-		acc_time_log("choice");
+		// acc_time_log("choice");
 		if (party == BOB) {
 			for (int x = 0; x < B; x++) {
 				bool choice = false;
@@ -480,27 +480,27 @@ public:
 					data[x] ^= one; 
 			}
 		}
-		acc_time_log("choice");
+		// acc_time_log("choice");
 		// delete ((block*)J);
 	}
 
 	void __eval4(block* data, int i) {
-		static int flag = 0;
+		// static int flag = 0;
 		int leave_mask = (1 << (tree_height - 1)) - 1;
 		constexpr int d = 10; // [TODO] This is just copied from Ferret, not correct for Dory.
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		constexpr int nblks = d * EVAL_SIZE / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
 			tmp[m] = makeBlock(cnt+i, m);
 		prp.permute_block(tmp, nblks);
-		acc_time_log("sample");
+		// acc_time_log("sample");
 		uint32_t* r = (uint32_t*)(tmp);
 		block ch[2] = {zero_block, Delta_f2k};
-		acc_time_log("eval");
+		// acc_time_log("eval");
 		memset(data+i, 0, EVAL_SIZE*sizeof(block));
 		bool correction[EVAL_SIZE];
-		memset(correction, 0, EVAL_SIZE);
+		memset(correction, 0, EVAL_SIZE*sizeof(bool));
 		if (party == ALICE) {
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
@@ -545,10 +545,10 @@ public:
 			}
 			delete[] path_sum;
 		}
-		acc_time_log("eval");
+		// acc_time_log("eval");
 		for (int x = 0; x < EVAL_SIZE; x++)
 			data[i+x] &= minustwo;
-		acc_time_log("choice");
+		// acc_time_log("choice");
 		if (party == BOB) {
 			for (int m = 0; m < EVAL_SIZE; m++) {
 				// if (correction[m])
@@ -556,8 +556,8 @@ public:
 				data[i+m] |= _mm_and_si128(_mm_set1_epi32(-correction[m]), one);
 			}
 		}
-		acc_time_log("choice");
-		flag++;
+		// acc_time_log("choice");
+		// flag++;
 	}
 
 	void exec_eval__(block* data, int cnt_start, int cnt_end) {
@@ -819,7 +819,7 @@ public:
 	// compute sum of all leaves with index <= w
 	template<int S>
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
-		static int flag = 0;
+		// static int flag = 0;
 		alignas(64) block s[2 * S], to_expand[S];
 		for(size_t i = 0; i < S; i++) {
 			s[i] = seed[i];
@@ -868,7 +868,7 @@ public:
 		for (size_t i = 0; i < S; i++) {
 			acc[i] ^= s[(w[i] & 1) * S + i];
 		}
-		flag++;
+		// flag++;
 	}
 
 #ifdef __AVX512F__
@@ -885,7 +885,7 @@ public:
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
-		static int flag = 0;
+		// static int flag = 0;
 		__mmask8 direction[S/4];
 		alignas(16) uint32_t wc[S];
 		for(int i = 0; i < S; i+=4) {
@@ -964,7 +964,7 @@ public:
 			cur = _mm512_xor_si512(cur, acced);
 			_mm512_storeu_epi32((void*)&acc[i], cur);
 		}
-		flag++;
+		// flag++;
 	}
 
 #else

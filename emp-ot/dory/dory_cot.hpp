@@ -59,7 +59,6 @@ void DoryCOT<T, B>::extend_full(block* ot_output, StreamCotReg<T, B> *stream_cot
 	else stream_cot->recver_init();
 	stream_cot->bootstrap(preot, ot_input);
 	stream_cot->eval_full(ot_output);
-	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int B>
@@ -70,7 +69,6 @@ void DoryCOT<T, B>::extend_full(block *ot_buffer) {
 	// [TODO] Need to advance ot_pre_data
 	extend_full(ot_buffer, stream_cot, pre_ot, ot_pre_data);
 	memcpy(ot_pre_data, ot_buffer + ot_limit, M*sizeof(block));
-	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int B>
@@ -87,7 +85,6 @@ void DoryCOT<T, B>::extend_limit(block *ot_buffer, int64_t num) {
 	stream_cot->bootstrap(pre_ot, ot_pre_data);
 	stream_cot->eval(ot_pre_data, (uint32_t)M);
 	stream_cot->eval(ot_buffer, (uint32_t)num);
-	std::cout << party << ": extend" << std::endl;
 }
 
 template<typename T, int B>
@@ -132,7 +129,7 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 		OTPre<T> pre_ot_ini(ios[0], (stream_cot_ini.tree_height-1) * B, (stream_cot_ini.tree_n + B + 1) / B);
 
 		block *pre_data_ini = new block[stream_cot_ini.consist_check_cot_num];
-		memset(this->ot_pre_data, 0, param.n_pre*16);
+		memset(this->ot_pre_data, 0, param.n_pre*sizeof(block));
 		if(this->is_malicious){
 			seed = zero_block;
 			choice = nullptr;
