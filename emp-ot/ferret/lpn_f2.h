@@ -29,6 +29,7 @@ class LpnF2 { public:
 	}
 
 	void __compute4(block * nn, const block * kk, int64_t i, PRP * prp) {
+		count_log("aes", d);
 		block tmp[d];
 		for(int m = 0; m < d; ++m)
 			tmp[m] = makeBlock(i, m);
@@ -44,10 +45,12 @@ class LpnF2 { public:
 	}
 
 	void __compute1(block * nn, const block * kk, int64_t i, PRP*prp) {
+		
                 const auto nr_blocks = d/4 + (d % 4 != 0);
                 block tmp[nr_blocks];
 		for(int m = 0; m < nr_blocks; ++m)
 			tmp[m] = makeBlock(i, m);
+			count_log("aes", nr_blocks);
 		prp->permute_block(tmp, nr_blocks);
 		uint32_t* r = (uint32_t*)(tmp);
 		for (int j = 0; j < d; ++j)

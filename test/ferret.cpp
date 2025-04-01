@@ -1,6 +1,8 @@
 #include "emp-ot/emp-ot.h"
 #include "test/test.h"
+#include "emp-ot/dory/performance.h"
 using namespace std;
+
 
 int port, party;
 const static int threads = 1;
@@ -24,6 +26,8 @@ void test_ferret(int party, NetIO *ios[threads], int64_t num_ot) {
 	uint64_t batch_size = ferretcot->ot_limit;
 	cout <<"Active FERRET RCOT inplace\t"<<double(batch_size)/test_rcot<FerretCOT<NetIO>>(ferretcot, ios[0], party, batch_size, true)*1e6<<" OTps"<<endl;
 	delete ferretcot;
+
+	print_op_counts();
 }
 
 int main(int argc, char** argv) {

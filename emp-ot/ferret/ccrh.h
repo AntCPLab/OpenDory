@@ -3,6 +3,7 @@
 // #include "emp-tool/utils/prp.h"
 #include "emp-tool/emp-tool.h"
 #include <stdio.h>
+#include "emp-ot/dory/performance.h"
 namespace emp {
 
 /*
@@ -17,6 +18,7 @@ class FerretCCRH { public:
 	}
 
 	void node_expand_2to4(block *children, const block *parent) {
+		count_log("aes", 2);
 		block tmp[2];
 		tmp[1] = children[2] = children[3] = parent[1];
 		tmp[0] = children[0] = children[1] = parent[0];
@@ -30,6 +32,7 @@ class FerretCCRH { public:
 	}
 
 	void node_expand_4to8(block *children, const block *parent) {
+		count_log("aes", 4);
 		block tmp[4];
 		tmp[3] = children[6] = children[7] = parent[3];
 		tmp[2] = children[4] = children[5] = parent[2];
