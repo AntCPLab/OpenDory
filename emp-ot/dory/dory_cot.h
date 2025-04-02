@@ -13,7 +13,7 @@ public:
 	using COT<T>::Delta;
 
 	DualLPNParameter param;
-	int64_t ot_used, ot_limit;
+	int64_t ot_limit;
 
 	DoryCOT(int party, int threads, T **ios, bool malicious = false, bool run_setup = true, 
 DualLPNParameter param = dory_b13, std::string pre_file="");

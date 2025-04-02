@@ -88,12 +88,6 @@ class OTPre { public:
 
 	void recv(block* data, int length, IO* io2, int s) {
 		int k = s*length;
-		block pad;
-		// for (int i = 0; i < length; ++i) {
-		// 	io2->recv_block(&pad, 1);
-		// 	data[i] = pre_data[k] ^ pad;
-		// 	++k;
-		// }
 
 		io2->recv_block(data, length);
 		for (int i = 0; i < length; ++i) {

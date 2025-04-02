@@ -48,7 +48,6 @@ void DoryCOT<T, B>::extend_initialization() {
 	M = pre_ot->n + stream_cot->consist_check_cot_num;
 	// [TODO] Need to modify the calculation of ot_limit.
 	ot_limit = param.n - M;
-	ot_used = ot_limit;
 	extend_initialized = true;
 }
 
