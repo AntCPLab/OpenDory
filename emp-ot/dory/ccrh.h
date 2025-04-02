@@ -1,6 +1,5 @@
 #ifndef EMP_DORY_CCRH_H__
 #define EMP_DORY_CCRH_H__
-// #include "emp-tool/utils/prp.h"
 #include "emp-tool/emp-tool.h"
 #include <stdio.h>
 #include "emp-ot/dory/performance.h"
@@ -36,9 +35,7 @@ inline std::ostream& operator<<(std::ostream& out, const blockx4_t& blk) {
 	out << std::dec << std::setw(0);
 	return out;
 }
-#endif
 
-#ifdef __AVX512F__
 /**
  * Caller should make sure `blks` is 64-byte aligned.
 */
@@ -55,24 +52,8 @@ static inline void ParaEnc(block *blks, const AES_KEYx4_t *keys) {
 	for (int i = 0; i < n_packed; ++i) 
 		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], keys[i].rd_key[10]);
 }
-#endif
 
-#ifdef __AVX512F__
 #define DORY_AES_BATCH_SIZE 4
-
-// template<int N>
-// static inline void AES_ecb_encrypt_blks(block *blks, const AES_KEYx4_t* key) {
-// 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
-// 	constexpr int n_packed = N >> 2;
-// 	for (int i = 0; i < n_packed; ++i)
-//       packed_blks[i] = _mm512_xor_si512(packed_blks[i], key->rd_key[0]);
-	
-// 	for (unsigned int j = 1; j < 10; ++j)
-// 		for (int i = 0; i < n_packed; ++i)
-// 			packed_blks[i] = _mm512_aesenc_epi128(packed_blks[i], key->rd_key[j]);
-// 	for (int i = 0; i < n_packed; ++i) 
-// 		packed_blks[i] = _mm512_aesenclast_epi128(packed_blks[i], key->rd_key[10]);
-// }
 
 static inline void aes_enc_4(block *blks, const AES_KEYx4_t* key) {
 	blockx4_t* packed_blks = reinterpret_cast<blockx4_t*>(blks);
