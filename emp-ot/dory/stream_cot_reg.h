@@ -390,7 +390,10 @@ public:
 		}
 	}
 
-	// compute sum of all leaves with index <= w
+	/**
+	 * Compute sum of all leaves with index <= w.
+	 * Do this for a batch of `S` trees, and sum the results of all trees.
+	 * */ 
 	template<int S>
 	block batch_sender_acc_left(const block* seed, const uint32_t* w) {
 		block acc[S];
@@ -401,7 +404,10 @@ public:
 		return acc[S - 1];
 	}
 
-	// compute sum of all leaves with index <= w
+	/**
+	 * Compute sum of all leaves with index <= w.
+	 * Do this for a batch of `S` trees.
+	 * */ 
 	template<int S>
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
 		alignas(64) block s[2 * S], to_expand[S];
@@ -463,7 +469,12 @@ public:
 		return _cvtu32_mask8(mask_bits);
 	}
 
-	// compute sum of all leaves with index <= w for tree `tree_idx`
+	/**
+	 * Compute sum of all leaves with index <= w.
+	 * Do this for a batch of `S` trees.
+	 * Each tree is provided with the accumulation position `w`, the GGM choice position `choice_pos`, and the
+	 * off-path sum `path_sum`.
+	 * */ 
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
 		__mmask8 direction[S/4];
