@@ -41,7 +41,7 @@ public:
 	vector<CGGM_Sender<IO, B>*> senders;
 	vector<CGGM_Recver<IO, B>*> recvers;
 	int mask;
-	int ell = 16;
+	// int ell = 16;
 	uint32_t upper_bound;
 	uint32_t cnt;
 	DoryPRP prp;
@@ -248,8 +248,8 @@ public:
 	}
 
 	void exec_eval(block* data, int idx) {
-		constexpr int d = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
-		constexpr int nblks = (d + 3) / 4;
+		constexpr int ell = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
+		constexpr int nblks = (ell + 3) / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
 			tmp[m] = makeBlock(cnt+idx, m);
@@ -310,6 +310,7 @@ public:
 		}
 		data[idx] &= minustwo;
 		if (party == BOB) {
+			r = (uint32_t*)(tmp);
 			bool choice = false;
 			for (int x = 0; x < ell; x++) {
 				int index = *r & mask;
