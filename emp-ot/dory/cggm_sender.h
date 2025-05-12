@@ -3,6 +3,7 @@
 #include <iostream>
 #include "emp-tool/emp-tool.h"
 #include "emp-ot/dory/ccrh.h"
+#include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
 
 using namespace emp;
@@ -14,7 +15,9 @@ using namespace emp;
 template<typename IO, int B = 16>
 class CGGM_Sender { public:
 	block seed[B];
-	block delta;
+	// block delta;
+	block tree_delta[B];
+	block global_delta;
 	block *tree_traversal_stack, *half_sum;
 	uint32_t *dfs_levels;
 	IO *io;
@@ -45,9 +48,15 @@ class CGGM_Sender { public:
 		delete ccrh;
 	}
 
+	void extract_tree_delta(DoryOTPre<IO>* ot, int s) {
+		for (int i = 0; i < B; i++) {
+			tree_delta[i] = ot->local_delta(s + i);
+		}
+	}
+
 	// generate GGM tree, transfer secret, F2^k
 	void compute(block secret) {
-		this->delta = secret;
+		// this->delta = secret;
 		ggm_tree_gen();
 	}
 
@@ -61,7 +70,7 @@ class CGGM_Sender { public:
 	void ggm_tree_gen() {
 		for (size_t i = 0; i < B; i++) {
 			tree_traversal_stack[B + i] = half_sum[i] = seed[i];
-			tree_traversal_stack[i] = delta ^ tree_traversal_stack[B + i];
+			tree_traversal_stack[i] = tree_delta[i] ^ tree_traversal_stack[B + i];
 			for (uint32_t h = 1; h < depth - 1; h++)
 				half_sum[h*B + i] = zero_block;
 		}
@@ -88,7 +97,7 @@ class CGGM_Sender { public:
 	void ggm_tree_gen(block* leaves_acc) {
 		for (size_t i = 0; i < B; i++) {
 			tree_traversal_stack[B + i] = seed[i];
-			tree_traversal_stack[i] = delta ^ tree_traversal_stack[B + i];
+			tree_traversal_stack[i] = tree_delta[i] ^ tree_traversal_stack[B + i];
 		}
 		dfs_levels[0] = dfs_levels[1] = 0;
 
@@ -120,7 +129,7 @@ class CGGM_Sender { public:
 		block s[2], to_expand;
 		acc = zero_block;
 		s[0] = seed[tree_idx];
-		s[1] = delta ^ seed[tree_idx];
+		s[1] = tree_delta[tree_idx] ^ seed[tree_idx];
 		for (int i = depth - 2; i >= 0; i--) {
 			if ((w >> i) & 1) {
 				acc ^= s[0];
@@ -142,7 +151,7 @@ class CGGM_Sender { public:
 		for(size_t i = 0; i < B; i++) {
 			acc[i] = zero_block;
 			s[i] = seed[i];
-			s[B + i] = delta ^ seed[i];
+			s[B + i] = tree_delta[i] ^ seed[i];
 		}
 		for (int i = depth - 2; i >= 0; i--) {
 

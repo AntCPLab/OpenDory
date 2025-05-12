@@ -6,11 +6,10 @@
 #include "emp-ot/dory/cggm_sender.h"
 #include "emp-ot/dory/cggm_recver.h"
 #include "emp-ot/dory/preot.h"
+#include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
 #include <list>
 #include <utility>
-
-#define __AVX512F__
 
 using namespace emp;
 using std::future;
@@ -40,6 +39,8 @@ public:
 
 	vector<CGGM_Sender<IO, B>*> senders;
 	vector<CGGM_Recver<IO, B>*> recvers;
+	// A cache for accumulated XOR of tree deltas: acc_delta[i] = delta[0] XOR ... XOR delta[i-1]
+	block* acc_delta = nullptr;
 	int mask;
 	// int ell = 16;
 	uint32_t upper_bound;
@@ -92,6 +93,7 @@ public:
 				recvers.push_back(new CGGM_Recver<IO, B>(netio, tree_height));
 			}
 		}
+		acc_delta = new block[t];
 
 		ccrh = new DoryCCRH(zero_block);
 	}
@@ -99,6 +101,7 @@ public:
 	~StreamCotReg() {
 		for (auto p : senders) delete p;
 		for (auto p : recvers) delete p;
+		delete[] acc_delta;
 		delete ccrh;
 	}
 
@@ -114,14 +117,25 @@ public:
 		item_pos_recver.resize(this->batch_tree_n * B);
 	}
 
+	/// @brief 
+	/// @param ot The preprocessed OT used for GGM tree expansion
+	/// @param pre_cot_data The OT data used for malicious check
 	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
 
+		DoryOTPre<IO> dory_preot(ot);
+
 		if(party == ALICE) {
-			mpcot_init_sender(senders, ot);
-			exec_parallel_sender(senders, ot);
+			dory_preot.sender_refactor();
+			mpcot_init_sender(senders, &dory_preot);
+			exec_parallel_sender(senders, &dory_preot);
 		} else {
-			mpcot_init_recver(recvers, ot);
-			exec_parallel_recver(recvers, ot);
+			dory_preot.receiver_refactor();
+			mpcot_init_recver(recvers, &dory_preot);
+			exec_parallel_recver(recvers, &dory_preot);
+		}
+		memset(acc_delta, 0, tree_n * sizeof(block));
+		for (int i = 1; i < tree_n; i++) {
+			acc_delta[i] = acc_delta[i-1] ^ dory_preot.local_delta(i);
 		}
 
 		if(is_malicious)
@@ -130,7 +144,7 @@ public:
 		cnt = 0;
 	}
 
-	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, OTPre<IO> *ot) {
+	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			senders[i]->initialize();
 			ot->choices_sender();
@@ -139,7 +153,7 @@ public:
 		ot->reset();
 	}
 
-	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, OTPre<IO> *ot) {
+	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			ot->choices_recver(recvers[i]->b);
 			const uint32_t* idx = recvers[i]->get_index();
@@ -150,7 +164,7 @@ public:
 		ot->reset();
 	}
 
-	void exec_parallel_sender(vector<CGGM_Sender<IO, B>*> &senders, OTPre<IO> *ot) {
+	void exec_parallel_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
 		vector<future<void>> fut;
 		// Assume LPN with a regular noise distribution,
 		// the task is simply divided into t calls of SPCOT, 
@@ -172,7 +186,7 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_parallel_recver(vector<CGGM_Recver<IO, B>*> &recvers, OTPre<IO> *ot) {
+	void exec_parallel_recver(vector<CGGM_Recver<IO, B>*> &recvers, DoryOTPre<IO> *ot) {
 		vector<future<void>> fut;		
 		int width = batch_tree_n / threads;
 		int start = 0, end = width;
@@ -191,16 +205,18 @@ public:
 		for (auto & f : fut) f.get();
 	}
 
-	void exec_f2k_sender(CGGM_Sender<IO, B> *sender, OTPre<IO> *ot, IO *io, int i) {
+	void exec_f2k_sender(CGGM_Sender<IO, B> *sender, DoryOTPre<IO> *ot, IO *io, int i) {
+		sender->extract_tree_delta(ot, i);
 		sender->compute(Delta_f2k);
-		sender->template send_f2k<OTPre<IO>>(ot, io, i);
+		sender->template send_f2k<DoryOTPre<IO>>(ot, io, i);
 		io->flush();
 		if(is_malicious)
 			sender->consistency_check_msg_gen(consist_check_VW+i);
 	}
 
-	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, OTPre<IO> *ot, IO *io, int i) {
-		recver->template recv_f2k<OTPre<IO>>(ot, io, i);
+	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, DoryOTPre<IO> *ot, IO *io, int i) {
+		recver->extract_tree_delta(ot, i);
+		recver->template recv_f2k<DoryOTPre<IO>>(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
@@ -271,7 +287,7 @@ public:
 			
 			/* Batch impl. */
 			int y;
-			bool correction = false;
+			// bool correction = false;
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
 			for (y = 0; y < ell/EVAL_SIZE; y++) {
@@ -282,7 +298,8 @@ public:
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
 					seed[x] = senders[uj/B]->seed[uj % B];
 					w[x] = wj;
-					correction ^= uj & 1;
+					// correction ^= uj & 1;
+					data[idx] ^= acc_delta[uj];
 				}
 				data[idx] ^= batch_sender_acc_left<EVAL_SIZE>(seed, w);
 			}
@@ -294,10 +311,11 @@ public:
 				block tmp;
 				senders[uj/B]->acc_left(tmp, uj % B, wj);
 				data[idx] ^= tmp;
-				correction ^= uj & 1;
+				// correction ^= uj & 1;
+				data[idx] ^= acc_delta[uj];
 			}
-			if (correction)
-				data[idx] ^= Delta_f2k;
+			// if (correction)
+			// 	data[idx] ^= Delta_f2k;
 		}
 		else {
 			for (int x = 0; x < ell; x++) {
@@ -306,6 +324,7 @@ public:
 				++r;
 				int uj = index >> (tree_height - 1), wj = index & leave_mask;
 				data[idx] ^= recvers[uj/B]->acc_left(uj % B, wj);
+				data[idx] ^= acc_delta[uj];
 			}
 		}
 		data[idx] &= minustwo;

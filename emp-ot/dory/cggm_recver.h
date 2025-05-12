@@ -3,6 +3,7 @@
 #include <iostream>
 #include "emp-tool/emp-tool.h"
 #include "emp-ot/dory/ccrh.h"
+#include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
 
 using namespace emp;
@@ -18,6 +19,8 @@ public:
 	block *path_sum;
 	uint32_t *dfs_levels;
 	bool *b;
+	block tree_delta[B];
+	bool tree_delta_choice[B];
 	uint32_t choice_pos[B];
 	uint32_t depth, leave_n;
 	IO *io;
@@ -54,6 +57,13 @@ public:
 			}
 		}
 		return choice_pos;
+	}
+
+	void extract_tree_delta(DoryOTPre<IO>* ot, int s) {
+		for (int i = 0; i < B; i++) {
+			tree_delta[i] = ot->local_delta(s + i);
+			tree_delta_choice[i] = ot->local_delta_choice(s + i);
+		}
 	}
 
 	template<typename OT>
