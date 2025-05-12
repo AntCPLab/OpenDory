@@ -10,10 +10,6 @@ class OTPre { public:
 	block * pre_data = nullptr;
 	bool * bits = nullptr;
 	int n;
-	vector<block*> pointers;
-	vector<const bool*> choices;
-	vector<const block*> pointers0;
-	vector<const block*> pointers1;
 
 	int length, count;
 	block Delta;
