@@ -41,6 +41,8 @@ public:
 	vector<CGGM_Recver<IO, B>*> recvers;
 	// A cache for accumulated XOR of tree deltas: acc_delta[i] = delta[0] XOR ... XOR delta[i-1]
 	block* acc_delta = nullptr;
+	// A cache for accumulated XOR of tree delta choices: acc_delta_choice[i] = delta_choice[0] XOR ... XOR delta_choice[i-1]
+	bool* acc_delta_choice = nullptr;
 	int mask;
 	// int ell = 16;
 	uint32_t upper_bound;
@@ -94,6 +96,7 @@ public:
 			}
 		}
 		acc_delta = new block[t];
+		acc_delta_choice = new bool[t+1];
 
 		ccrh = new DoryCCRH(zero_block);
 	}
@@ -102,6 +105,7 @@ public:
 		for (auto p : senders) delete p;
 		for (auto p : recvers) delete p;
 		delete[] acc_delta;
+		delete[] acc_delta_choice;
 		delete ccrh;
 	}
 
@@ -133,10 +137,18 @@ public:
 			mpcot_init_recver(recvers, &dory_preot);
 			exec_parallel_recver(recvers, &dory_preot);
 		}
+		std::cout << "after exec parallel" << std::endl;
 		memset(acc_delta, 0, tree_n * sizeof(block));
 		for (int i = 1; i < tree_n; i++) {
-			acc_delta[i] = acc_delta[i-1] ^ dory_preot.local_delta(i);
+			acc_delta[i] = acc_delta[i-1] ^ dory_preot.local_delta(i-1);
 		}
+		if (party == BOB) {
+			memset(acc_delta_choice, 0, (tree_n + 1) * sizeof(bool));
+			for (int i = 1; i < tree_n + 1; i++) {
+				acc_delta_choice[i] = acc_delta_choice[i-1] ^ dory_preot.local_delta_choice(i-1);
+			}
+		}
+		std::cout << "after acc delta" << std::endl;
 
 		if(is_malicious)
 			consistency_check_f2k(pre_cot_data, tree_n);
@@ -255,9 +267,9 @@ public:
 
 	void exec_eval(block* data, int start, int end) {
 		int i = start;
-		for(; i <= end-EVAL_SIZE; i+=EVAL_SIZE) {
-			exec_eval_batch(data, i);
-		}
+		// for(; i <= end-EVAL_SIZE; i+=EVAL_SIZE) {
+		// 	exec_eval_batch(data, i);
+		// }
 		for (; i < end; i++) {
 			exec_eval(data, i);
 		}
@@ -324,6 +336,8 @@ public:
 				++r;
 				int uj = index >> (tree_height - 1), wj = index & leave_mask;
 				data[idx] ^= recvers[uj/B]->acc_left(uj % B, wj);
+				if (wj >= (recvers[uj/B]->choice_pos[uj % B]))
+					data[idx] ^= recvers[uj/B]->tree_delta[uj % B];
 				data[idx] ^= acc_delta[uj];
 			}
 		}
@@ -335,8 +349,9 @@ public:
 				int index = *r & mask;
 				index = index >= idx_max? index-idx_max : index;
 				++r;
-				int uj = index >> (tree_height - 1), wj = index & leave_mask;
-				choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
+				int uj = index >> (tree_height - 1), wj = index & leave_mask; 
+				// choice ^= ((uj & 1) ^ (wj >= recvers[uj/B]->choice_pos[uj%B]));
+				choice ^= acc_delta_choice[uj + (wj >= recvers[uj/B]->choice_pos[uj%B])];
 			}
 			if (choice)
 				data[idx] ^= one; 
