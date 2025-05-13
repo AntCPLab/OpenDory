@@ -11,12 +11,12 @@ class OTPre { public:
 	bool * bits = nullptr;
 	int n;
 
-	int length, count;
+	int unit_length, count;
 	block Delta;
-	OTPre(IO* io, int length, int times) {
+	OTPre(IO* io, int unit_length, int times) {
 		this->io = io;
-		this->length = length;
-		n = length*times;
+		this->unit_length = unit_length;
+		n = unit_length*times;
 		pre_data = new block[n];
 		bits = new bool[n];
 		count = 0;
@@ -46,22 +46,22 @@ class OTPre { public:
 		memcpy(pre_data, data, n*sizeof(block));
 	}
 
-	void choices_sender() {
-		count +=length;
+	void choices_sender(int length) {
+		count += length;
 	}
 
-	void choices_recver(bool * b) {
+	void choices_recver(bool * b, int length) {
 		memcpy(b, bits+count, length);
-		count +=length;
+		count += length;
 	}
 	
 	void reset() {
 		count = 0;
 	}
 
-	void send(const block* m, int length, IO* io2, int s) {
+	void send(const block* m, int length, IO* io2, int start_unit) {
 		block pad;
-		int k = s*length;
+		int k = start_unit * unit_length;
 		for (int i = 0; i < length; ++i) {
 			pad = m[i] ^ pre_data[k];
 			++k;
@@ -82,8 +82,8 @@ class OTPre { public:
 		// io2->send_block(pre_data + s*length, length);
 	}
 
-	void recv(block* data, int length, IO* io2, int s) {
-		int k = s*length;
+	void recv(block* data, int length, IO* io2, int start_unit) {
+		int k = start_unit * unit_length;
 
 		io2->recv_block(data, length);
 		for (int i = 0; i < length; ++i) {

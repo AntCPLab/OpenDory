@@ -44,7 +44,7 @@ void DoryCOT<T, B>::extend_initialization() {
 	stream_cot = new StreamCotReg<T, B>(party, threads, param.n, param.t, param.log_bin_sz, pool, ios);
 	if(is_malicious) stream_cot->set_malicious();
 
-	pre_ot = new OTPre<T>(io, (stream_cot->tree_height-1) * B, (stream_cot->tree_n + B - 1)/B);
+	pre_ot = new OTPre<T>(io, stream_cot->tree_height-1, stream_cot->tree_n);
 	M = pre_ot->n + stream_cot->consist_check_cot_num;
 	// [TODO] Need to modify the calculation of ot_limit.
 	ot_limit = param.n - M;
@@ -125,7 +125,7 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 
 		StreamCotReg<T, B> stream_cot_ini(party, threads, param.n_pre, param.t_pre, param.log_bin_sz_pre, pool, ios);
 		if(is_malicious) stream_cot_ini.set_malicious();
-		OTPre<T> pre_ot_ini(ios[0], (stream_cot_ini.tree_height-1) * B, (stream_cot_ini.tree_n + B + 1) / B);
+		OTPre<T> pre_ot_ini(ios[0], stream_cot_ini.tree_height-1, stream_cot_ini.tree_n);
 
 		block *pre_data_ini = new block[stream_cot_ini.consist_check_cot_num];
 		memset(this->ot_pre_data, 0, param.n_pre*sizeof(block));

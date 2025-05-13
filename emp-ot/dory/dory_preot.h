@@ -14,7 +14,7 @@ class DoryOTPre { public:
 	IO* io;
 	block * pre_data = nullptr;
 	bool * bits = nullptr;
-	int n, length;
+	int n, unit_length;
 	int count;
 	block global_delta;
 
@@ -25,7 +25,7 @@ class DoryOTPre { public:
 	DoryOTPre(OTPre<IO>* preot) {
 		this->preot = preot;
 		this->n = preot->n;
-		this->length = preot->length;
+		this->unit_length = preot->unit_length;
 		this->io = preot->io;
 		pre_data = new block[n];
 		bits = new bool[preot->n];
@@ -47,7 +47,7 @@ class DoryOTPre { public:
 
 		memcpy(pre_data, preot->pre_data, n * sizeof(block));
 		for (int i = 0; i < n; i++) {
-			if (i % length == 0) continue;
+			if (i % unit_length == 0) continue;
 			if (d[i])
 				pre_data[i] ^= global_delta;
 		}
@@ -62,15 +62,15 @@ class DoryOTPre { public:
 		bool* d = new bool[n];
 		memcpy(pre_data, preot->pre_data, n * sizeof(block));
 		for (int i = 0; i < n; i++) {
-			if (i % length == 0) {
+			if (i % unit_length == 0) {
 				// \beta = s[0], M(\beta) = M(s[0])
 				bits[i] = preot->bits[i];
 			}
 			else {
 				d[i] = preot->bits[i];
 				if (bits[i]) {
-					pre_data[i] ^= pre_data[i/length];
-					d[i] ^= bits[i/length];
+					pre_data[i] ^= pre_data[i/unit_length];
+					d[i] ^= bits[i/unit_length];
 				}
 			}
 		}
@@ -79,29 +79,29 @@ class DoryOTPre { public:
 	}
 
 	block local_delta(int s) {
-		return pre_data[s * length];
+		return pre_data[s * unit_length];
 	}
 
 	bool local_delta_choice(int s) {
-		return bits[s * length];
+		return bits[s * unit_length];
 	}
 
-	void choices_sender() {
-		count +=length;
+	void choices_sender(int length) {
+		count += length;
 	}
 
-	void choices_recver(bool * b) {
+	void choices_recver(bool * b, int length) {
 		memcpy(b, bits+count+1, length-1);
-		count +=length;
+		count += length;
 	}
 	
 	void reset() {
 		count = 0;
 	}
 
-	void send(const block* m, int length, IO* io2, int s) {
+	void send(const block* m, int length, IO* io2, int start_unit) {
 		block pad;
-		int k = s*length + 1;
+		int k = start_unit * unit_length + 1;
 		for (int i = 0; i < length - 1; ++i) {
 			pad = m[i] ^ pre_data[k];
 			++k;
@@ -109,8 +109,8 @@ class DoryOTPre { public:
 		}
 	}
 
-	void recv(block* data, int length, IO* io2, int s) {
-		int k = s*length + 1;
+	void recv(block* data, int length, IO* io2, int start_unit) {
+		int k = start_unit * unit_length + 1;
 
 		io2->recv_block(data, length - 1);
 		for (int i = 0; i < length - 1; ++i) {

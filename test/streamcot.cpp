@@ -16,7 +16,7 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-    OTPre<NetIO> pre_ot(ios[0], dory_b13.log_bin_sz * batch_size, (dory_b13.t + batch_size - 1) / batch_size);
+    OTPre<NetIO> pre_ot(ios[0], dory_b13.log_bin_sz + 1, dory_b13.t);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
 	auto start = clock_start();

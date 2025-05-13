@@ -137,7 +137,6 @@ public:
 			mpcot_init_recver(recvers, &dory_preot);
 			exec_parallel_recver(recvers, &dory_preot);
 		}
-		std::cout << "after exec parallel" << std::endl;
 		memset(acc_delta, 0, tree_n * sizeof(block));
 		for (int i = 1; i < tree_n; i++) {
 			acc_delta[i] = acc_delta[i-1] ^ dory_preot.local_delta(i-1);
@@ -148,7 +147,6 @@ public:
 				acc_delta_choice[i] = acc_delta_choice[i-1] ^ dory_preot.local_delta_choice(i-1);
 			}
 		}
-		std::cout << "after acc delta" << std::endl;
 
 		if(is_malicious)
 			consistency_check_f2k(pre_cot_data, tree_n);
@@ -159,7 +157,7 @@ public:
 	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			senders[i]->initialize();
-			ot->choices_sender();
+			ot->choices_sender(ot->unit_length * B);
 		}
 		netio->flush();
 		ot->reset();
@@ -167,7 +165,7 @@ public:
 
 	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
-			ot->choices_recver(recvers[i]->b);
+			ot->choices_recver(recvers[i]->b, ot->unit_length * B);
 			const uint32_t* idx = recvers[i]->get_index();
 			for (int j = 0; j < B; j++)
 				item_pos_recver[i*B + j] = idx[j];
@@ -187,14 +185,14 @@ public:
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
 						senders, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_sender(senders[i], ot, ios[start/width], i);
+					exec_f2k_sender(senders[i], ot, ios[start/width], i*B);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_sender(senders[i], ot, ios[threads - 1], i);
+			exec_f2k_sender(senders[i], ot, ios[threads - 1], i*B);
 		for (auto & f : fut) f.get();
 	}
 
@@ -206,14 +204,14 @@ public:
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
 						recvers, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_recver(recvers[i], ot, ios[start/width], i);
+					exec_f2k_recver(recvers[i], ot, ios[start/width], i*B);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_recver(recvers[i], ot, ios[threads - 1], i);
+			exec_f2k_recver(recvers[i], ot, ios[threads - 1], i*B);
 		for (auto & f : fut) f.get();
 	}
 
