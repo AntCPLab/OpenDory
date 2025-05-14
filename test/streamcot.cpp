@@ -2,6 +2,7 @@
 #include "emp-ot/dory/base_cot.h"
 #include "emp-ot/dory/constants.h"
 #include "emp-ot/dory/performance.h"
+#include <cmath>
 using namespace std;
 
 int port, party;
@@ -16,12 +17,18 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-    OTPre<NetIO> pre_ot(ios[0], dory_b13.log_bin_sz + 1, dory_b13.t);
+	const int log_bin_sz = dory_b13.log_bin_sz;
+	const int t = dory_b13.t;
+	const int n = dory_b13.n;
+	// const int log_bin_sz = 3;
+	// const int t = 16;
+	// const int n = t * (pow(2, log_bin_sz));
+    OTPre<NetIO> pre_ot(ios[0], log_bin_sz + 1, t);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
-	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, dory_b13.n, dory_b13.t, dory_b13.log_bin_sz, pool, ios);
+	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, n, t, log_bin_sz, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	acc_time_log("mpcot");

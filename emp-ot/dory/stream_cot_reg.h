@@ -139,12 +139,12 @@ public:
 		}
 		memset(acc_delta, 0, tree_n * sizeof(block));
 		for (int i = 1; i < tree_n; i++) {
-			acc_delta[i] = acc_delta[i-1] ^ dory_preot.local_delta(i-1);
+			acc_delta[i] = acc_delta[i-1] ^ dory_preot.unit_offset(i-1);
 		}
 		if (party == BOB) {
 			memset(acc_delta_choice, 0, (tree_n + 1) * sizeof(bool));
 			for (int i = 1; i < tree_n + 1; i++) {
-				acc_delta_choice[i] = acc_delta_choice[i-1] ^ dory_preot.local_delta_choice(i-1);
+				acc_delta_choice[i] = acc_delta_choice[i-1] ^ dory_preot.unit_choice(i-1);
 			}
 		}
 
@@ -157,7 +157,8 @@ public:
 	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			senders[i]->initialize();
-			ot->choices_sender(ot->unit_length * B);
+			// ot->choices_sender((tree_height - 1) * B);
+			ot->template choices_sender<B>();
 		}
 		netio->flush();
 		ot->reset();
@@ -165,7 +166,8 @@ public:
 
 	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
-			ot->choices_recver(recvers[i]->b, ot->unit_length * B);
+			// ot->choices_recver(recvers[i]->b, (tree_height - 1) * B);
+			ot->template choices_recver<B>(recvers[i]->b);
 			const uint32_t* idx = recvers[i]->get_index();
 			for (int j = 0; j < B; j++)
 				item_pos_recver[i*B + j] = idx[j];
@@ -185,14 +187,14 @@ public:
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
 						senders, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_sender(senders[i], ot, ios[start/width], i*B);
+					exec_f2k_sender(senders[i], ot, ios[start/width], i);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_sender(senders[i], ot, ios[threads - 1], i*B);
+			exec_f2k_sender(senders[i], ot, ios[threads - 1], i);
 		for (auto & f : fut) f.get();
 	}
 
@@ -204,21 +206,22 @@ public:
 			fut.push_back(this->pool->enqueue([this, start, end, width, 
 						recvers, ot](){
 				for(int i = start; i < end; ++i)
-					exec_f2k_recver(recvers[i], ot, ios[start/width], i*B);
+					exec_f2k_recver(recvers[i], ot, ios[start/width], i);
 			}));
 			start = end;
 			end += width;
 		}
 		end = batch_tree_n;
 		for(int i = start; i < end; ++i)
-			exec_f2k_recver(recvers[i], ot, ios[threads - 1], i*B);
+			exec_f2k_recver(recvers[i], ot, ios[threads - 1], i);
 		for (auto & f : fut) f.get();
 	}
 
 	void exec_f2k_sender(CGGM_Sender<IO, B> *sender, DoryOTPre<IO> *ot, IO *io, int i) {
 		sender->extract_tree_delta(ot, i);
 		sender->compute(Delta_f2k);
-		sender->template send_f2k<DoryOTPre<IO>>(ot, io, i);
+		// sender->template send_f2k<DoryOTPre<IO>>(ot, io, i);
+		sender->send_f2k(ot, io, i);
 		io->flush();
 		if(is_malicious)
 			sender->consistency_check_msg_gen(consist_check_VW+i);
@@ -226,7 +229,8 @@ public:
 
 	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, DoryOTPre<IO> *ot, IO *io, int i) {
 		recver->extract_tree_delta(ot, i);
-		recver->template recv_f2k<DoryOTPre<IO>>(ot, io, i);
+		// recver->template recv_f2k<DoryOTPre<IO>>(ot, io, i);
+		recver->recv_f2k(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
@@ -333,8 +337,9 @@ public:
 				index = index >= idx_max? index-idx_max : index;
 				++r;
 				int uj = index >> (tree_height - 1), wj = index & leave_mask;
-				data[idx] ^= recvers[uj/B]->acc_left(uj % B, wj);
-				if (wj >= (recvers[uj/B]->choice_pos[uj % B]))
+				block tmp = recvers[uj/B]->acc_left(uj % B, wj);
+				data[idx] ^= tmp;
+				if (wj >= (recvers[uj/B]->choice_pos[uj%B]))
 					data[idx] ^= recvers[uj/B]->tree_delta[uj % B];
 				data[idx] ^= acc_delta[uj];
 			}
@@ -443,6 +448,7 @@ public:
 	 * */ 
 	template<int S>
 	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
+		std::cout << "enter batch acc" << std::endl;
 		alignas(64) block s[2 * S], to_expand[S];
 		for(size_t i = 0; i < S; i++) {
 			s[i] = seed[i];
@@ -510,6 +516,7 @@ public:
 	 * */ 
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
+		std::cout << "enter batch acc" << std::endl;
 		__mmask8 direction[S/4];
 		alignas(16) uint32_t wc[S];
 		for(int i = 0; i < S; i+=4) {
@@ -590,6 +597,7 @@ public:
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
+		std::cout << "enter batch acc" << std::endl;
 		alignas(16) uint32_t direction[S];
 		for(int i = 0; i < S; i++)
 			direction[i] = w[i] <= choice_pos[i];
