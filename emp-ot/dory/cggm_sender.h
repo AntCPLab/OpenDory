@@ -15,7 +15,6 @@ using namespace emp;
 template<typename IO, int B = 16>
 class CGGM_Sender { public:
 	block seed[B];
-	// block delta;
 	block tree_delta[B];
 	block global_delta;
 	block *tree_traversal_stack, *half_sum;
@@ -49,26 +48,21 @@ class CGGM_Sender { public:
 	}
 
 	void extract_tree_delta(DoryOTPre<IO>* ot, int s) {
-		// for (int i = 0; i < B; i++) {
-		// 	tree_delta[i] = ot->local_delta(s + i);
-		// }
 		memcpy(tree_delta, ot->unit_offsets + s * B, B * sizeof(block));
 	}
 
-	// generate GGM tree, transfer secret, F2^k
-	void compute(block secret) {
-		// this->delta = secret;
+	// generate GGM tree
+	void compute() {
 		ggm_tree_gen();
 	}
 
 	// send the nodes by oblivious transfer, F2^k
 	void send_f2k(DoryOTPre<IO> * ot, IO * io2, int s) {
-		// ot->send(half_sum, (depth-1) * B, io2, s * B);
 		ot->template send<B>(half_sum, io2, s*B);
 
 
-		io2->send_block(half_sum, (depth-1)*B);
-		io2->send_block(tree_delta, B);
+		// io2->send_block(half_sum, (depth-1)*B);
+		// io2->send_block(tree_delta, B);
 	}
 
 	// generate GGM tree from the top
@@ -89,36 +83,6 @@ class CGGM_Sender { public:
 				continue;
 			}
 			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
-			dfs_levels[top] += 1;
-			dfs_levels[top+1] = dfs_levels[top];
-			top++;
-
-			for (size_t i = 0; i < B; i++)
-				half_sum[dfs_levels[top] * B + i] ^= tree_traversal_stack[top * B + i];
-		}
-	}
-
-	// generate GGM tree from the top
-	void ggm_tree_gen_test() {
-		for (size_t i = 0; i < B; i++) {
-			tree_traversal_stack[B + i] = half_sum[i] = seed[i];
-			tree_traversal_stack[i] = tree_delta[i] ^ tree_traversal_stack[B + i];
-			for (uint32_t h = 1; h < depth - 1; h++)
-				half_sum[h*B + i] = zero_block;
-		}
-		dfs_levels[0] = dfs_levels[1] = 0;
-
-		int top = 1;
-		while (top >= 0) {
-			// We arrive at a leave, don't expand and go back to last level
-			if (dfs_levels[top] >= depth-2) {
-				// std::cout << "[s] leave: " << tree_traversal_stack[top * B] << std::endl;
-				top--;
-				continue;
-			}
-			std::cout << "[s] " << tree_traversal_stack[top * B] << " --> ";
-			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
-			std::cout << tree_traversal_stack[(top+1) * B] << " , " << tree_traversal_stack[top * B] << std::endl;
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
@@ -182,18 +146,6 @@ class CGGM_Sender { public:
 	// Compute the leave with index = w for tree `tree_idx`
 	// Used for debugging purpose
 	block leave(uint32_t tree_idx, uint32_t w) {
-		// if (w == 0) {
-		// 	block tmp;
-		// 	acc_left(tmp, tree_idx, 0);
-		// 	return tmp;
-		// }
-		// else {
-		// 	block tmp1, tmp2;
-		// 	acc_left(tmp1, tree_idx, w-1);
-		// 	acc_left(tmp2, tree_idx, w);
-		// 	return tmp1 ^ tmp2;
-		// }
-
 		block s[2], to_expand;
 		s[0] = seed[tree_idx];
 		s[1] = tree_delta[tree_idx] ^ seed[tree_idx];

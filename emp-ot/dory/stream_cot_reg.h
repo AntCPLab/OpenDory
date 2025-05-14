@@ -157,7 +157,6 @@ public:
 	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
 			senders[i]->initialize();
-			// ot->choices_sender((tree_height - 1) * B);
 			ot->template choices_sender<B>();
 		}
 		netio->flush();
@@ -166,7 +165,6 @@ public:
 
 	void mpcot_init_recver(vector<CGGM_Recver<IO, B>*> &recvers, DoryOTPre<IO> *ot) {
 		for(int i = 0; i < batch_tree_n; ++i) {
-			// ot->choices_recver(recvers[i]->b, (tree_height - 1) * B);
 			ot->template choices_recver<B>(recvers[i]->b);
 			const uint32_t* idx = recvers[i]->get_index();
 			for (int j = 0; j < B; j++)
@@ -219,8 +217,7 @@ public:
 
 	void exec_f2k_sender(CGGM_Sender<IO, B> *sender, DoryOTPre<IO> *ot, IO *io, int i) {
 		sender->extract_tree_delta(ot, i);
-		sender->compute(Delta_f2k);
-		// sender->template send_f2k<DoryOTPre<IO>>(ot, io, i);
+		sender->compute();
 		sender->send_f2k(ot, io, i);
 		io->flush();
 		if(is_malicious)
@@ -229,7 +226,6 @@ public:
 
 	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, DoryOTPre<IO> *ot, IO *io, int i) {
 		recver->extract_tree_delta(ot, i);
-		// recver->template recv_f2k<DoryOTPre<IO>>(ot, io, i);
 		recver->recv_f2k(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
