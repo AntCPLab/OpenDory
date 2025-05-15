@@ -265,9 +265,9 @@ public:
 
 	void exec_eval(block* data, int start, int end) {
 		int i = start;
-		// for(; i <= end-EVAL_SIZE; i+=EVAL_SIZE) {
-		// 	exec_eval_batch(data, i);
-		// }
+		for(; i <= end-EVAL_SIZE; i+=EVAL_SIZE) {
+			exec_eval_batch(data, i);
+		}
 		for (; i < end; i++) {
 			exec_eval(data, i);
 		}
@@ -298,6 +298,7 @@ public:
 			/* Batch impl. */
 			int y;
 			// bool correction = false;
+			block delta[EVAL_SIZE];
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
 			for (y = 0; y < ell/EVAL_SIZE; y++) {
@@ -306,12 +307,13 @@ public:
 					index = index >= idx_max? index-idx_max : index;
 					++r;
 					int uj = index >> (tree_height - 1), wj = index & leave_mask;
+					delta[x] = senders[uj/B]->tree_delta[uj%B];
 					seed[x] = senders[uj/B]->seed[uj % B];
 					w[x] = wj;
 					// correction ^= uj & 1;
 					data[idx] ^= acc_delta[uj];
 				}
-				data[idx] ^= batch_sender_acc_left<EVAL_SIZE>(seed, w);
+				data[idx] ^= batch_sender_acc_left<EVAL_SIZE>(delta, seed, w);
 			}
 			for (y = y * EVAL_SIZE; y < ell; y++) {
 				int index = *r & mask;
@@ -366,11 +368,12 @@ public:
 			tmp[m] = makeBlock(cnt+i, m);
 		prp.permute_block(tmp, nblks);
 		uint32_t* r = (uint32_t*)(tmp);
-		block ch[2] = {zero_block, Delta_f2k};
+		// block ch[2] = {zero_block, Delta_f2k};
 		memset(data+i, 0, EVAL_SIZE*sizeof(block));
 		bool correction[EVAL_SIZE];
 		memset(correction, 0, EVAL_SIZE*sizeof(bool));
 		if (party == ALICE) {
+			block delta[EVAL_SIZE];
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
 			for (int y = 0; y < d; y++) {
@@ -381,14 +384,16 @@ public:
 					++r;
 					int batch_tree_idx = uj/B, internal_tree_idx = uj % B;
 					seed[m] = senders[batch_tree_idx]->seed[internal_tree_idx];
+					delta[m] = senders[batch_tree_idx]->tree_delta[internal_tree_idx];
 					w[m] = wj;
-					correction[m] ^= uj & 1;
+					// correction[m] ^= uj & 1;
+					data[i + m] ^= acc_delta[uj];
 				}
-				batch_sender_acc_left<EVAL_SIZE>(data + i, seed, w);
+				batch_sender_acc_left<EVAL_SIZE>(data + i, delta, seed, w);
 			}
-			for (int m = 0; m < EVAL_SIZE; m++) {
-				data[i+m] ^= ch[correction[m]];
-			}
+			// for (int m = 0; m < EVAL_SIZE; m++) {
+			// 	data[i+m] ^= ch[correction[m]];
+			// }
 		}
 		else {
 			uint32_t choice[EVAL_SIZE];
@@ -407,7 +412,12 @@ public:
 					for(int i = 0; i < tree_height; i++)
 						path_sum[i*EVAL_SIZE + m] = recvers[batch_tree_idx]->path_sum[i*B + internal_tree_idx];
 
-					correction[m] ^= ((uj & 1) ^ (wj >= choice[m]));
+					// correction[m] ^= ((uj & 1) ^ (wj >= choice[m]));
+					correction[m] ^= acc_delta_choice[uj + (wj >= choice[m])];
+
+					if (wj >= choice[m])
+						data[i + m] ^= recvers[batch_tree_idx]->tree_delta[internal_tree_idx];
+					data[i + m] ^= acc_delta[uj];
 				}
 				batch_recver_acc_left<EVAL_SIZE>(data + i, path_sum, choice, w);
 			}
@@ -429,10 +439,10 @@ public:
 	 * Do this for a batch of `S` trees, and sum the results of all trees.
 	 * */ 
 	template<int S>
-	block batch_sender_acc_left(const block* seed, const uint32_t* w) {
+	block batch_sender_acc_left(const block* delta, const block* seed, const uint32_t* w) {
 		block acc[S];
 		memset(acc, 0, S*sizeof(block));
-		batch_sender_acc_left<S>(acc, seed, w);
+		batch_sender_acc_left<S>(acc, delta, seed, w);
 		for (int i = 1; i < S; i++)
 			acc[i] ^= acc[i-1];
 		return acc[S - 1];
@@ -443,12 +453,11 @@ public:
 	 * Do this for a batch of `S` trees.
 	 * */ 
 	template<int S>
-	void batch_sender_acc_left(block* acc, const block* seed, const uint32_t* w) {
-		std::cout << "enter batch acc" << std::endl;
+	void batch_sender_acc_left(block* acc, const block* delta, const block* seed, const uint32_t* w) {
 		alignas(64) block s[2 * S], to_expand[S];
 		for(size_t i = 0; i < S; i++) {
 			s[i] = seed[i];
-			s[S + i] = Delta_f2k ^ seed[i];
+			s[S + i] = delta[i] ^ seed[i];
 		}
 		for (int i = tree_height - 2; i >= 0; i--) {
 #ifdef __AVX512F__
@@ -512,7 +521,6 @@ public:
 	 * */ 
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
-		std::cout << "enter batch acc" << std::endl;
 		__mmask8 direction[S/4];
 		alignas(16) uint32_t wc[S];
 		for(int i = 0; i < S; i+=4) {
@@ -593,7 +601,6 @@ public:
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	template<int S>
 	void batch_recver_acc_left(block* acc, const block* path_sum, const uint32_t* choice_pos, const uint32_t* w) {
-		std::cout << "enter batch acc" << std::endl;
 		alignas(16) uint32_t direction[S];
 		for(int i = 0; i < S; i++)
 			direction[i] = w[i] <= choice_pos[i];
