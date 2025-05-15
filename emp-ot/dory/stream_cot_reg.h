@@ -60,7 +60,7 @@ public:
 	 * meaning `t` calls to CGGM, each with a vector length of `2**log_bin_sz`.
 	*/
 	StreamCotReg(int party, int threads, const DualLPNParameter& param, ThreadPool * pool, IO **ios) {
-		assert(ell < ELL_BOUND);
+		assert(param.ell < ELL_BOUND);
 		this->party = party;
 		this->threads = threads;
 		netio = ios[0];
@@ -278,7 +278,6 @@ public:
 	}
 
 	void exec_eval(block* data, int idx) {
-		// constexpr int ell = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
 		constexpr int nblks = (ELL_BOUND + 3) / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
@@ -365,7 +364,6 @@ public:
 
 	void exec_eval_batch(block* data, int i) {
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		// constexpr int d = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
 		constexpr int nblks = ELL_BOUND * EVAL_SIZE / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
