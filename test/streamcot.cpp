@@ -17,18 +17,17 @@ void test_streamcot(int party, NetIO *ios[threads]) {
     if (party == ALICE)
         std::cout << "Sender's secret: " << secret << std::endl;
 	
-	const int log_bin_sz = dory_b13.log_bin_sz;
-	const int t = dory_b13.t;
-	const int n = dory_b13.n;
+	DualLPNParameter param = dory_b13;
 	// const int log_bin_sz = 3;
 	// const int t = 16;
 	// const int n = t * (pow(2, log_bin_sz));
-    OTPre<NetIO> pre_ot(ios[0], log_bin_sz + 1, t);
+	// const int ell = 7;
+    OTPre<NetIO> pre_ot(ios[0], param.log_bin_sz + 1, param.t);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
-	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, n, t, log_bin_sz, pool, ios);
+	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, param, pool, ios);
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	acc_time_log("mpcot");

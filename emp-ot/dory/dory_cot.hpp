@@ -14,7 +14,6 @@ DoryCOT<T, B>::DoryCOT(int party, int threads, T **ios,
 
 	this->extend_initialized = false;
 
-
 	if(run_setup) {
 		if(party == ALICE) {
 			PRG prg;
@@ -41,13 +40,13 @@ DoryCOT<T, B>::~DoryCOT() {
 
 template<typename T, int B>
 void DoryCOT<T, B>::extend_initialization() {
-	stream_cot = new StreamCotReg<T, B>(party, threads, param.n, param.t, param.log_bin_sz, pool, ios);
+	stream_cot = new StreamCotReg<T, B>(party, threads, param, pool, ios);
 	if(is_malicious) stream_cot->set_malicious();
 
 	pre_ot = new OTPre<T>(io, stream_cot->tree_height, stream_cot->tree_n);
 	M = pre_ot->n + stream_cot->consist_check_cot_num;
 	// [TODO] Need to modify the calculation of ot_limit.
-	ot_limit = param.n - M;
+	ot_limit = param.ot_limit() - M;
 	extend_initialized = true;
 }
 
@@ -106,7 +105,7 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 		extend_initialization();
 	});
 
-	ot_pre_data = new block[param.n_pre];
+	ot_pre_data = new block[param.pre_ot_size()];
 	bool hasfile = file_exists(pre_ot_filename), hasfile2;
 	if(party == ALICE) {
 		io->send_data(&hasfile, sizeof(bool));
@@ -123,25 +122,38 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 		if(party == BOB) base_cot->cot_gen_pre();
 		else base_cot->cot_gen_pre(Delta);
 
-		StreamCotReg<T, B> stream_cot_ini(party, threads, param.n_pre, param.t_pre, param.log_bin_sz_pre, pool, ios);
-		if(is_malicious) stream_cot_ini.set_malicious();
-		OTPre<T> pre_ot_ini(ios[0], stream_cot_ini.tree_height, stream_cot_ini.tree_n);
+		// StreamCotReg<T, B> stream_cot_ini(party, threads, param_pre, pool, ios);
+		// if(is_malicious) stream_cot_ini.set_malicious();
+		// OTPre<T> pre_ot_ini(ios[0], stream_cot_ini.tree_height, stream_cot_ini.tree_n);
 
-		block *pre_data_ini = new block[stream_cot_ini.consist_check_cot_num];
-		memset(this->ot_pre_data, 0, param.n_pre*sizeof(block));
-		if(this->is_malicious){
+		// block *pre_data_ini = new block[stream_cot_ini.consist_check_cot_num];
+		// memset(this->ot_pre_data, 0, param_pre.ot_limit() * sizeof(block));
+		// if(this->is_malicious){
+		// 	seed = zero_block;
+		// 	choice = nullptr;
+		// }
+		// if(choice){
+        //     base_cot->cot_gen(&pre_ot_ini, pre_ot_ini.n, choice);
+        //     base_cot->cot_gen(pre_data_ini, stream_cot_ini.consist_check_cot_num, choice+pre_ot_ini.n);
+        // }else {
+        //     base_cot->cot_gen(&pre_ot_ini, pre_ot_ini.n);
+        //     base_cot->cot_gen(pre_data_ini, stream_cot_ini.consist_check_cot_num);
+        // }
+		// extend_full(ot_pre_data, &stream_cot_ini, &pre_ot_ini, pre_data_ini);
+		// delete[] pre_data_ini;
+
+
+		memset(this->ot_pre_data, 0, param.pre_ot_size() * sizeof(block));
+		if (this->is_malicious){
 			seed = zero_block;
 			choice = nullptr;
 		}
-		if(choice){
-            base_cot->cot_gen(&pre_ot_ini, pre_ot_ini.n, choice);
-            base_cot->cot_gen(pre_data_ini, stream_cot_ini.consist_check_cot_num, choice+pre_ot_ini.n);
-        }else {
-            base_cot->cot_gen(&pre_ot_ini, pre_ot_ini.n);
-            base_cot->cot_gen(pre_data_ini, stream_cot_ini.consist_check_cot_num);
-        }
-		extend_full(ot_pre_data, &stream_cot_ini, &pre_ot_ini, pre_data_ini);
-		delete[] pre_data_ini;
+		if (choice) {
+			base_cot->cot_gen(ot_pre_data, param.pre_ot_size(), choice);
+		}
+		else {
+			base_cot->cot_gen(ot_pre_data, param.pre_ot_size());
+		}
 	}
 
 	fut.get();
@@ -197,7 +209,7 @@ void DoryCOT<T, B>::write_pre_data128_to_file(void* loc, __uint128_t delta, std:
 	if(party == ALICE) fio.send_data(&delta, 16);
 	fio.send_data(&param.n, sizeof(int64_t));
 	fio.send_data(&param.t, sizeof(int64_t));
-	fio.send_data(loc, param.n_pre*16);
+	fio.send_data(loc, param.pre_ot_size()*16);
 }
 
 template<typename T, int B>
@@ -213,7 +225,7 @@ __uint128_t DoryCOT<T, B>::read_pre_data128_from_file(void* pre_loc, std::string
 	fio.recv_data(&tin, sizeof(int64_t));
 	if(nin != param.n || tin != param.t)
 		error("wrong parameters");
-	fio.recv_data(pre_loc, param.n_pre*16);
+	fio.recv_data(pre_loc, param.pre_ot_size()*16);
 	std::remove(filename.c_str());
 	return delta;
 }
@@ -229,7 +241,7 @@ int64_t DoryCOT<T, B>::byte_memory_need_inplace(int64_t ot_need) {
 // output the number of COTs that can be used
 template<typename T, int B>
 int64_t DoryCOT<T, B>::rcot_inplace(block *ot_buffer, int64_t byte_space, block seed) {
-	if(byte_space < param.n) error("space not enough");
+	if(byte_space < param.ot_limit()) error("space not enough");
 	if((byte_space - M) % ot_limit != 0) error("call byte_memory_need_inplace \
 			to get the correct length of memory space");
 	int64_t ot_output_n = byte_space - M;

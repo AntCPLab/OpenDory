@@ -8,6 +8,7 @@
 #include "emp-ot/dory/preot.h"
 #include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
+#include "emp-ot/dory/constants.h"
 #include <list>
 #include <utility>
 
@@ -18,6 +19,7 @@ template<typename IO, int B>
 class StreamCotReg {
 public:
 	constexpr static int EVAL_SIZE = 32;
+	constexpr static int ELL_BOUND = 16;
 	int party, threads;
 	int item_n, m;
 	uint32_t idx_max;
@@ -44,7 +46,7 @@ public:
 	// A cache for accumulated XOR of tree delta choices: acc_delta_choice[i] = delta_choice[0] XOR ... XOR delta_choice[i-1]
 	bool* acc_delta_choice = nullptr;
 	int mask;
-	// int ell = 16;
+	int ell = -1;
 	uint32_t upper_bound;
 	uint32_t cnt;
 	DoryPRP prp;
@@ -57,7 +59,8 @@ public:
 	 * related as: `n = t * (2**log_bin_sz)`,
 	 * meaning `t` calls to CGGM, each with a vector length of `2**log_bin_sz`.
 	*/
-	StreamCotReg(int party, int threads, int n, int t, int log_bin_sz, ThreadPool * pool, IO **ios) {
+	StreamCotReg(int party, int threads, const DualLPNParameter& param, ThreadPool * pool, IO **ios) {
+		assert(ell < ELL_BOUND);
 		this->party = party;
 		this->threads = threads;
 		netio = ios[0];
@@ -67,17 +70,18 @@ public:
 		this->pool = pool;
 		this->is_malicious = false;
 
-		this->item_n = t;
-		this->idx_max = n;
-		this->tree_height = log_bin_sz+1;
+		this->item_n = param.t;
+		this->idx_max = param.n;
+		this->tree_height = param.log_bin_sz+1;
 		this->leave_n = 1<<(this->tree_height-1);
 		this->tree_n = this->item_n;
 		this->batch_tree_n = (this->tree_n + B - 1) / B;
+		this->ell = param.ell;
 
-		this->cnt = this->upper_bound = n;
+		this->cnt = this->upper_bound = param.ot_limit();
 
 		mask = 1;
-		while(mask < n) {
+		while(mask < param.n) {
 			mask <<=1;
 			mask = mask | 0x1;
 		}
@@ -95,8 +99,8 @@ public:
 				recvers.push_back(new CGGM_Recver<IO, B>(netio, tree_height));
 			}
 		}
-		acc_delta = new block[t];
-		acc_delta_choice = new bool[t+1];
+		acc_delta = new block[param.t];
+		acc_delta_choice = new bool[param.t+1];
 
 		ccrh = new DoryCCRH(zero_block);
 	}
@@ -274,8 +278,8 @@ public:
 	}
 
 	void exec_eval(block* data, int idx) {
-		constexpr int ell = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
-		constexpr int nblks = (ell + 3) / 4;
+		// constexpr int ell = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
+		constexpr int nblks = (ELL_BOUND + 3) / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
 			tmp[m] = makeBlock(cnt+idx, m);
@@ -361,8 +365,8 @@ public:
 
 	void exec_eval_batch(block* data, int i) {
 		int leave_mask = (1 << (tree_height - 1)) - 1;
-		constexpr int d = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
-		constexpr int nblks = d * EVAL_SIZE / 4;
+		// constexpr int d = 10; // [TODO] This sparsity is just copied from Ferret, might not be correct for Dory.
+		constexpr int nblks = ELL_BOUND * EVAL_SIZE / 4;
 		block tmp[nblks];
 		for(int m = 0; m < nblks; ++m)
 			tmp[m] = makeBlock(cnt+i, m);
@@ -376,7 +380,7 @@ public:
 			block delta[EVAL_SIZE];
 			block seed[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
-			for (int y = 0; y < d; y++) {
+			for (int y = 0; y < ell; y++) {
 				for (int m = 0; m < EVAL_SIZE; m++) {
 					int index = *r & mask;
 					index = index >= idx_max? index-idx_max : index;
@@ -399,7 +403,7 @@ public:
 			uint32_t choice[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
 			block* path_sum = new block[tree_height*EVAL_SIZE];
-			for (int y = 0; y < d; y++) {
+			for (int y = 0; y < ell; y++) {
 				for (int m = 0; m < EVAL_SIZE; m++) {
 					int index = *r & mask;
 					index = index >= idx_max? index-idx_max : index;
