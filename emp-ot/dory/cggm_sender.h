@@ -5,6 +5,7 @@
 #include "emp-ot/dory/ccrh.h"
 #include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
+#include "emp-ot/dory/utils.h"
 
 using namespace emp;
 
@@ -23,6 +24,7 @@ class CGGM_Sender { public:
 	uint32_t depth, leave_n;
 	PRG prg;
 	DoryCCRH *ccrh;
+	block one;
 
 	CGGM_Sender(IO *io, uint32_t depth_in) {
 		this->io = io;
@@ -32,6 +34,7 @@ class CGGM_Sender { public:
 		half_sum = new block[(depth-1) * B];
 		dfs_levels = new uint32_t[depth];
 		ccrh = new DoryCCRH(zero_block);
+		one = makeBlock(0x0LL, 0x1LL);
 
 		initialize();
 	}
@@ -123,6 +126,53 @@ class CGGM_Sender { public:
 		}
 	}
 
+	/**
+	 * Linear combination of leaves with coefficents derived from universal hash.
+	 * Memory consumption: logarithmic.
+	*/
+	void ggm_tree_lin_comb(block* res, block uh_seed) {
+
+		block* coeffs = new block[depth * B];
+		memset(res, 0, B * sizeof(block));
+
+		for (size_t i = 0; i < B; i++) {
+			tree_traversal_stack[B + i] = seed[i];
+			tree_traversal_stack[i] = tree_delta[i] ^ seed[i];
+
+			coeffs[B + i] = one;
+			coeffs[i] = uh_seed;
+		}
+		dfs_levels[0] = dfs_levels[1] = 0;
+
+		int top = 1;
+		while (top >= 0) {
+			// We arrive at a leave, don't expand and go back to last level
+			if (dfs_levels[top] >= depth-2) {
+				block r;
+				for(int i = 0; i < B; i++) {
+					gfmul(coeffs[top * B + i], tree_traversal_stack[top * B + i], &r);
+					res[i] ^= r;
+				}
+				top--;
+				continue;
+			}
+			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
+			vector_gfmul<B>(coeffs + (top+1)*B, coeffs + top*B, coeffs + top*B);
+			vector_gfmul<B>(coeffs + top*B, coeffs + (top+1)*B, uh_seed);
+
+			dfs_levels[top] += 1;
+			dfs_levels[top+1] = dfs_levels[top];
+			top++;
+		}
+
+		for (int i = 0; i < B; i++) {
+			// Multiply everything with seed because the coeffs's powers were one less during the above expansion
+			gfmul(res[i], uh_seed, res + i);
+		}
+
+		delete[] coeffs;
+	}
+
 	// compute sum of all leaves with index <= w for tree `tree_idx`
 	void acc_left(block& acc, uint32_t tree_idx, uint32_t w) {
 		block s[2], to_expand;
@@ -189,7 +239,18 @@ class CGGM_Sender { public:
 			acc[i] ^= s[(w[i] & 1) * B + i];
 	}
 
-	void consistency_check_msg_gen(block *V) {
+	void consistency_check_msg_gen(IO* io2, block *V) {
+		block uh_seed;
+		io2->recv_block(&uh_seed, 1);
+		ggm_tree_lin_comb(V, uh_seed);
+
+
+
+
+		io2->send_block(V, B);
+		io2->send_block(tree_delta, B);
+
+
 		// // X
 		// block *chi = new block[leave_n];
 		// Hash hash;

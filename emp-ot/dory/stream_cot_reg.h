@@ -129,6 +129,8 @@ public:
 	/// @param ot The preprocessed OT used for GGM tree expansion
 	/// @param pre_cot_data The OT data used for malicious check
 	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
+		if(party == BOB) consist_check_chi_alpha = new block[item_n];
+		consist_check_VW = new block[item_n];
 
 		DoryOTPre<IO> dory_preot(ot);
 
@@ -156,6 +158,9 @@ public:
 			consistency_check_f2k(pre_cot_data, tree_n);
 
 		cnt = 0;
+
+		if(party == BOB) delete[] consist_check_chi_alpha;
+		delete[] consist_check_VW;
 	}
 
 	void mpcot_init_sender(vector<CGGM_Sender<IO, B>*> &senders, DoryOTPre<IO> *ot) {
@@ -225,7 +230,7 @@ public:
 		sender->send_f2k(ot, io, i);
 		io->flush();
 		if(is_malicious)
-			sender->consistency_check_msg_gen(consist_check_VW+i);
+			sender->consistency_check_msg_gen(io, consist_check_VW+i);
 	}
 
 	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, DoryOTPre<IO> *ot, IO *io, int i) {
@@ -233,7 +238,7 @@ public:
 		recver->recv_f2k(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
-			recver->consistency_check_msg_gen(consist_check_chi_alpha+i, consist_check_VW+i);
+			recver->consistency_check_msg_gen(io, consist_check_chi_alpha+i, consist_check_VW+i);
 	}
 
 	uint32_t silent_ot_left() {

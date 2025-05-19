@@ -65,6 +65,9 @@ const static DualLPNParameter dory_b11 = DualLPNParameter(10180608, 4971, 11, 7)
 // const static DualLPNParameter dory_b11_pre = DualLPNParameter(55296, 108, 9, 7);
 
 
+const static DualLPNParameter dory_test_param = DualLPNParameter(128, 16, 3, 7);
+
+
 
 }//namespace
 #endif //EMP_DORY_CONSTANTS_H__

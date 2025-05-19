@@ -5,6 +5,7 @@
 #include "emp-ot/dory/ccrh.h"
 #include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
+#include "emp-ot/dory/utils.h"
 
 using namespace emp;
 
@@ -25,6 +26,8 @@ public:
 	uint32_t depth, leave_n;
 	IO *io;
 	DoryCCRH *ccrh;
+	PRG prg;
+	block one;
 
 	CGGM_Recver(IO *io, uint32_t depth_in) {
 		this->io = io;
@@ -36,6 +39,8 @@ public:
 		path_sum = new block[depth * B];
 		ccrh = new DoryCCRH(zero_block);
 		dfs_levels = new uint32_t[depth];
+
+		one = makeBlock(0x0LL, 0x1LL);
 	}
 
 	~CGGM_Recver(){
@@ -146,6 +151,72 @@ public:
 		}
 	}
 
+	/**
+	 * Linear combination of leaves with coefficents derived from universal hash.
+	 * Memory consumption: logarithmic.
+	*/
+	void ggm_tree_lin_comb(block* res, block* chi_alpha, block uh_seed) {
+
+		// block* choice_coeff = new block[B];
+		block* coeffs = new block[depth * B];
+		memset(res, 0, B * sizeof(block));
+		// int next_leave_idx[B];
+		// memset(next_leave_idx, 0, B * sizeof(int));
+		for  (int i = 0; i < B; i++)
+			chi_alpha[i] = one;
+		for (int i = 0; i < depth - 1; i++) {
+			for (size_t j = 0; j < B; j++) {
+				gfmul(chi_alpha[j], chi_alpha[j], &chi_alpha[j]);
+				coeffs[j] = chi_alpha[j];
+				if (!b[i * B + j])
+					gfmul(chi_alpha[j], uh_seed, &chi_alpha[j]);
+				else
+					gfmul(coeffs[j], uh_seed, &coeffs[j]);
+
+				tree_traversal_stack[j] = path_sum[i * B + j];
+				// next_leave_idx[j] = (choice_pos[j] ^ (1 << (depth-2-i))) & ((1 << (depth-2-i)));
+			}
+
+			dfs_levels[0] = i;
+			int top = 0;
+			while (top >= 0) {
+				// We arrive at a leave, don't expand and go back to last level
+				if (dfs_levels[top] >= depth-2) {
+					block r;
+					for(int j = 0; j < B; j++) {
+						gfmul(coeffs[top * B + j], tree_traversal_stack[top * B + j], &r);
+						res[j] ^= r;
+						// next_leave_idx[i]++;
+					}
+					top--;
+					continue;
+				}
+				ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
+				vector_gfmul<B>(coeffs + (top+1)*B, coeffs + top*B, coeffs + top*B);
+				vector_gfmul<B>(coeffs + top*B, coeffs + (top+1)*B, uh_seed);
+
+				dfs_levels[top] += 1;
+				dfs_levels[top+1] = dfs_levels[top];
+				top++;
+			}
+		}
+
+		for (int i = 0; i < B; i++) {
+			// Add the linear combination with choice position
+			block r;
+			gfmul(chi_alpha[i], path_sum[(depth-1)*B + i], &r);
+			res[i] ^= r;
+
+			// Multiply everything with seed because the coeffs's powers were one less during the above expansion
+			gfmul(res[i], uh_seed, res + i);
+			gfmul(chi_alpha[i], uh_seed, chi_alpha + i);
+		}
+
+		delete[] coeffs;
+		// delete[] choice_coeff;
+	}
+
+
 	block acc_left(uint32_t tree_idx, uint32_t w) {
 		block acc;
 		acc_left(acc, tree_idx, w);
@@ -214,12 +285,37 @@ public:
 		}
 	}
 
-	void consistency_check_msg_gen(block *chi_alpha, block *W) {
-		// // X
+	void consistency_check_msg_gen(IO* io2, block *chi_alpha, block *W) {
+
+		// sample universal hash seed
+		block uh_seed;
+		prg.random_block(&uh_seed, 1);
+		// uh_seed = one;
+		io2->send_block(&uh_seed, 1);
+		ggm_tree_lin_comb(W, chi_alpha, uh_seed);
+
+
+
+		block sW[B], sDelta[B], sW_W[B], sleaves[B];
+		io2->recv_block(sW, B);
+		io2->recv_block(sDelta, B);
+		for (int i = 0; i < B; i++) {
+			sW_W[i] = sW[i] ^ W[i];
+			block expected;
+			gfmul(chi_alpha[i], sDelta[i], &expected);
+			if (!cmpBlock(&expected, &sW_W[i], 1)) {
+				std::cout << "dory expected: " << expected << ",\t" << "got:\t" << sW_W[i] << std::endl;
+				error("wrong!\n");
+			}
+			std::cout << "test passed" << std::endl;
+		}
+
+
+		// X
 		// block *chi = new block[leave_n];
 		// Hash hash;
 		// block digest[2];
-		// hash.hash_once(digest, &secret_sum_f2, sizeof(block));
+		// hash.hash_once(digest, &uh_seed, sizeof(block));
 		// uni_hash_coeff_gen(chi, digest[0], leave_n);
 		// *chi_alpha = chi[choice_pos];
 		// vector_inn_prdt_sum_red(W, chi, ggm_tree, leave_n);
