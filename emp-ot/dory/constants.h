@@ -58,10 +58,10 @@ class DualLPNParameter { public:
 const static DualLPNParameter dory_b13 = DualLPNParameter(9781248, 1194, 13, 7);
 // const static DualLPNParameter dory_b13_pre = DualLPNParameter(93184, 91, 10, 7);
 
-const static DualLPNParameter dory_b12 = DualLPNParameter(10268672, 2507, 12, 7);
+const static DualLPNParameter dory_b18 = DualLPNParameter(293601280, 1120, 18, 9);
 // const static DualLPNParameter dory_b12_pre = DualLPNParameter(30720, 120, 8, 7);
 
-const static DualLPNParameter dory_b11 = DualLPNParameter(10180608, 4971, 11, 7);
+const static DualLPNParameter dory_b23 = DualLPNParameter(8707375104, 1038, 23, 11);
 // const static DualLPNParameter dory_b11_pre = DualLPNParameter(55296, 108, 9, 7);
 
 
