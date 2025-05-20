@@ -129,8 +129,8 @@ public:
 	/// @param ot The preprocessed OT used for GGM tree expansion
 	/// @param pre_cot_data The OT data used for malicious check
 	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
-		if(party == BOB) consist_check_chi_alpha = new block[item_n];
-		consist_check_VW = new block[item_n];
+		if(party == BOB) consist_check_chi_alpha = new block[batch_tree_n * B];
+		consist_check_VW = new block[batch_tree_n * B];
 
 		DoryOTPre<IO> dory_preot(ot);
 
@@ -230,7 +230,7 @@ public:
 		sender->send_f2k(ot, io, i);
 		io->flush();
 		if(is_malicious)
-			sender->consistency_check_msg_gen(io, consist_check_VW+i);
+			sender->consistency_check_msg_gen(io, consist_check_VW + i * B);
 	}
 
 	void exec_f2k_recver(CGGM_Recver<IO, B> *recver, DoryOTPre<IO> *ot, IO *io, int i) {
@@ -238,7 +238,7 @@ public:
 		recver->recv_f2k(ot, io, i);
 		recver->compute();
 		if(is_malicious) 
-			recver->consistency_check_msg_gen(io, consist_check_chi_alpha+i, consist_check_VW+i);
+			recver->consistency_check_msg_gen(io, consist_check_chi_alpha + i * B, consist_check_VW + i * B);
 	}
 
 	uint32_t silent_ot_left() {
@@ -682,48 +682,48 @@ public:
 
 	// f2k consistency check
 	void consistency_check_f2k(block *pre_cot_data, int num) {
-		// if(this->party == ALICE) {
-		// 	block r1, r2;
-		// 	vector_self_xor(&r1, this->consist_check_VW, num);
-		// 	bool x_prime[128];
-		// 	this->netio->recv_data(x_prime, 128*sizeof(bool));
-		// 	for(int i = 0; i < 128; ++i) {
-		// 		if(x_prime[i])
-		// 			pre_cot_data[i] = pre_cot_data[i] ^ this->Delta_f2k;
-		// 	}
-		// 	pack.packing(&r2, pre_cot_data);
-		// 	r1 = r1 ^ r2;
-		// 	block dig[2];
-		// 	Hash hash;
-		// 	hash.hash_once(dig, &r1, sizeof(block));
-		// 	this->netio->send_data(dig, 2*sizeof(block));
-		// 	this->netio->flush();
-		// } else {
-		// 	block r1, r2, r3;
-		// 	vector_self_xor(&r1, this->consist_check_VW, num);
-		// 	vector_self_xor(&r2, this->consist_check_chi_alpha, num);
-		// 	uint64_t pos[2];
-		// 	pos[0] = _mm_extract_epi64(r2, 0);
-		// 	pos[1] = _mm_extract_epi64(r2, 1);
-		// 	bool pre_cot_bool[128];
-		// 	for(int i = 0; i < 2; ++i) {
-		// 		for(int j = 0; j < 64; ++j) {
-		// 			pre_cot_bool[i*64+j] = ((pos[i] & 1) == 1) ^ getLSB(pre_cot_data[i*64+j]);
-		// 			pos[i] >>= 1;
-		// 		}
-		// 	}
-		// 	this->netio->send_data(pre_cot_bool, 128*sizeof(bool));
-		// 	this->netio->flush();
-		// 	pack.packing(&r3, pre_cot_data);
-		// 	r1 = r1 ^ r3;
-		// 	block dig[2];
-		// 	Hash hash;
-		// 	hash.hash_once(dig, &r1, sizeof(block));
-		// 	block recv[2];
-		// 	this->netio->recv_data(recv, 2*sizeof(block));
-		// 	if(!cmpBlock(dig, recv, 2))
-		// 		std::cout << "SPCOT consistency check fails" << std::endl;
-		// }
+		if(this->party == ALICE) {
+			block r1, r2;
+			vector_self_xor(&r1, this->consist_check_VW, num);
+			bool x_prime[128];
+			this->netio->recv_data(x_prime, 128*sizeof(bool));
+			for(int i = 0; i < 128; ++i) {
+				if(x_prime[i])
+					pre_cot_data[i] = pre_cot_data[i] ^ this->Delta_f2k;
+			}
+			pack.packing(&r2, pre_cot_data);
+			r1 = r1 ^ r2;
+			block dig[2];
+			Hash hash;
+			hash.hash_once(dig, &r1, sizeof(block));
+			this->netio->send_data(dig, 2*sizeof(block));
+			this->netio->flush();
+		} else {
+			block r1, r2, r3;
+			vector_self_xor(&r1, this->consist_check_VW, num);
+			vector_self_xor(&r2, this->consist_check_chi_alpha, num);
+			uint64_t pos[2];
+			pos[0] = _mm_extract_epi64(r2, 0);
+			pos[1] = _mm_extract_epi64(r2, 1);
+			bool pre_cot_bool[128];
+			for(int i = 0; i < 2; ++i) {
+				for(int j = 0; j < 64; ++j) {
+					pre_cot_bool[i*64+j] = ((pos[i] & 1) == 1) ^ getLSB(pre_cot_data[i*64+j]);
+					pos[i] >>= 1;
+				}
+			}
+			this->netio->send_data(pre_cot_bool, 128*sizeof(bool));
+			this->netio->flush();
+			pack.packing(&r3, pre_cot_data);
+			r1 = r1 ^ r3;
+			block dig[2];
+			Hash hash;
+			hash.hash_once(dig, &r1, sizeof(block));
+			block recv[2];
+			this->netio->recv_data(recv, 2*sizeof(block));
+			if(!cmpBlock(dig, recv, 2))
+				std::cout << "SPCOT consistency check fails" << std::endl;
+		}
 	}
 };
 #endif

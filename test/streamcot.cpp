@@ -76,6 +76,9 @@ void test_streamcot_mal(int party, NetIO *ios[threads]) {
     OTPre<NetIO> pre_ot(ios[0], param.log_bin_sz + 1, param.t);
     base_cot.cot_gen(&pre_ot, pre_ot.n);
 
+	block pre_ot_data_mal_check[128];
+	base_cot.cot_gen(pre_ot_data_mal_check, 128);
+
 	auto start = clock_start();
 	ThreadPool* pool = new ThreadPool(threads);
 	StreamCotReg<NetIO, batch_size> * streamcot = new StreamCotReg<NetIO, batch_size>(party, threads, param, pool, ios);
@@ -83,7 +86,7 @@ void test_streamcot_mal(int party, NetIO *ios[threads]) {
 	if(party == ALICE) streamcot->sender_init(secret);
 	else streamcot->recver_init();
 	acc_time_log("mpcot");
-	streamcot->bootstrap(&pre_ot, nullptr);
+	streamcot->bootstrap(&pre_ot, pre_ot_data_mal_check);
 	acc_time_log("mpcot");
 	double timeused = time_from(start);
 	std::cout << party << "\tsetup\t" << timeused/1000 << "ms" << std::endl;
@@ -118,15 +121,27 @@ void test_streamcot_mal(int party, NetIO *ios[threads]) {
 
 int main(int argc, char** argv) {
 	parse_party_and_port(argv, &party, &port);
-	NetIO* ios[threads];
-	for(int i = 0; i < threads; ++i)
-		ios[i] = new NetIO(party == ALICE?nullptr:"127.0.0.1",port+i);
-	
-	std::cout << "///// Semi Honest /////" << std::endl;
-	test_streamcot_semi(party, ios);
-	std::cout << "///// Malicious  /////" << std::endl;
-	test_streamcot_mal(party, ios);
+	{
+		NetIO* ios[threads];
+		for(int i = 0; i < threads; ++i)
+			ios[i] = new NetIO(party == ALICE?nullptr:"127.0.0.1",port+i);
+		
+		std::cout << "///// Semi Honest /////" << std::endl;
+		test_streamcot_semi(party, ios);
 
-	for(int i = 0; i < threads; ++i)
+		for(int i = 0; i < threads; ++i)
 		delete ios[i];
+	}
+	{
+		NetIO* ios[threads];
+		for(int i = 0; i < threads; ++i)
+			ios[i] = new NetIO(party == ALICE?nullptr:"127.0.0.1",port+i);
+
+		std::cout << "///// Malicious  /////" << std::endl;
+		test_streamcot_mal(party, ios);
+		
+		for(int i = 0; i < threads; ++i)
+		delete ios[i];
+	}
+
 }

@@ -245,21 +245,9 @@ class CGGM_Sender { public:
 		ggm_tree_lin_comb(V, uh_seed);
 
 
+		// io2->send_block(V, B);
+		// io2->send_block(tree_delta, B);
 
-
-		io2->send_block(V, B);
-		io2->send_block(tree_delta, B);
-
-
-		// // X
-		// block *chi = new block[leave_n];
-		// Hash hash;
-		// block digest[2];
-		// hash.hash_once(digest, &secret_sum_f2, sizeof(block));
-		// uni_hash_coeff_gen(chi, digest[0], leave_n);
-
-		// vector_inn_prdt_sum_red(V, chi, ggm_tree, leave_n);
-		// delete[] chi;
 	}
 };
 

@@ -157,11 +157,8 @@ public:
 	*/
 	void ggm_tree_lin_comb(block* res, block* chi_alpha, block uh_seed) {
 
-		// block* choice_coeff = new block[B];
 		block* coeffs = new block[depth * B];
 		memset(res, 0, B * sizeof(block));
-		// int next_leave_idx[B];
-		// memset(next_leave_idx, 0, B * sizeof(int));
 		for  (int i = 0; i < B; i++)
 			chi_alpha[i] = one;
 		for (int i = 0; i < depth - 1; i++) {
@@ -174,7 +171,6 @@ public:
 					gfmul(coeffs[j], uh_seed, &coeffs[j]);
 
 				tree_traversal_stack[j] = path_sum[i * B + j];
-				// next_leave_idx[j] = (choice_pos[j] ^ (1 << (depth-2-i))) & ((1 << (depth-2-i)));
 			}
 
 			dfs_levels[0] = i;
@@ -186,7 +182,6 @@ public:
 					for(int j = 0; j < B; j++) {
 						gfmul(coeffs[top * B + j], tree_traversal_stack[top * B + j], &r);
 						res[j] ^= r;
-						// next_leave_idx[i]++;
 					}
 					top--;
 					continue;
@@ -202,9 +197,9 @@ public:
 		}
 
 		for (int i = 0; i < B; i++) {
-			// Add the linear combination with choice position
+			// Add the linear combination with choice position. NOTE: add the tree delta before multiplying with coeff
 			block r;
-			gfmul(chi_alpha[i], path_sum[(depth-1)*B + i], &r);
+			gfmul(chi_alpha[i], path_sum[(depth-1)*B + i] ^ tree_delta[i], &r);
 			res[i] ^= r;
 
 			// Multiply everything with seed because the coeffs's powers were one less during the above expansion
@@ -213,7 +208,6 @@ public:
 		}
 
 		delete[] coeffs;
-		// delete[] choice_coeff;
 	}
 
 
@@ -294,32 +288,27 @@ public:
 		io2->send_block(&uh_seed, 1);
 		ggm_tree_lin_comb(W, chi_alpha, uh_seed);
 
-
-
-		block sW[B], sDelta[B], sW_W[B], sleaves[B];
-		io2->recv_block(sW, B);
-		io2->recv_block(sDelta, B);
+		// Correction due to different tree deltas
 		for (int i = 0; i < B; i++) {
-			sW_W[i] = sW[i] ^ W[i];
-			block expected;
-			gfmul(chi_alpha[i], sDelta[i], &expected);
-			if (!cmpBlock(&expected, &sW_W[i], 1)) {
-				std::cout << "dory expected: " << expected << ",\t" << "got:\t" << sW_W[i] << std::endl;
-				error("wrong!\n");
-			}
-			std::cout << "test passed" << std::endl;
+			if (!tree_delta_choice[i])
+				chi_alpha[i] = zero_block;
 		}
 
 
-		// X
-		// block *chi = new block[leave_n];
-		// Hash hash;
-		// block digest[2];
-		// hash.hash_once(digest, &uh_seed, sizeof(block));
-		// uni_hash_coeff_gen(chi, digest[0], leave_n);
-		// *chi_alpha = chi[choice_pos];
-		// vector_inn_prdt_sum_red(W, chi, ggm_tree, leave_n);
-		// delete[] chi;
+
+		// block sW[B], sDelta[B], sW_W[B], sleaves[B];
+		// io2->recv_block(sW, B);
+		// io2->recv_block(sDelta, B);
+		// for (int i = 0; i < B; i++) {
+		// 	sW_W[i] = sW[i] ^ W[i];
+		// 	block expected;
+		// 	gfmul(chi_alpha[i], sDelta[i], &expected);
+		// 	if (!cmpBlock(&expected, &sW_W[i], 1)) {
+		// 		std::cout << "dory expected: " << expected << ",\t" << "got:\t" << sW_W[i] << std::endl;
+		// 		error("wrong!\n");
+		// 	}
+		// 	std::cout << "test passed" << std::endl;
+		// }
 	}
 };
 #endif
