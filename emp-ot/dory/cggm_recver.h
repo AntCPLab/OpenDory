@@ -20,9 +20,9 @@ public:
 	block *path_sum;
 	uint32_t *dfs_levels;
 	bool *b;
+	uint32_t choice_pos[B];
 	block tree_delta[B];
 	bool tree_delta_choice[B];
-	uint32_t choice_pos[B];
 	uint32_t depth, leave_n;
 	IO *io;
 	DoryCCRH *ccrh;

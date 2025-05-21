@@ -17,7 +17,6 @@ template<typename IO, int B = 16>
 class CGGM_Sender { public:
 	block seed[B];
 	block tree_delta[B];
-	block global_delta;
 	block *tree_traversal_stack, *half_sum;
 	uint32_t *dfs_levels;
 	IO *io;

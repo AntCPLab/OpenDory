@@ -380,8 +380,8 @@ public:
 		bool correction[EVAL_SIZE];
 		memset(correction, 0, EVAL_SIZE*sizeof(bool));
 		if (party == ALICE) {
-			block delta[EVAL_SIZE];
 			block seed[EVAL_SIZE];
+			block delta[EVAL_SIZE];
 			uint32_t w[EVAL_SIZE];
 			for (int y = 0; y < ell; y++) {
 				for (int m = 0; m < EVAL_SIZE; m++) {
