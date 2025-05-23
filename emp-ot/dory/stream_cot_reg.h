@@ -239,6 +239,7 @@ public:
 		recver->compute();
 		if(is_malicious) 
 			recver->consistency_check_msg_gen(io, consist_check_chi_alpha + i * B, consist_check_VW + i * B);
+		io->flush();
 	}
 
 	uint32_t silent_ot_left() {
