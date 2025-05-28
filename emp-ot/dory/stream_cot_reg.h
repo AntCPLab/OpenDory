@@ -45,7 +45,7 @@ public:
 	block* acc_delta = nullptr;
 	// A cache for accumulated XOR of tree delta choices: acc_delta_choice[i] = delta_choice[0] XOR ... XOR delta_choice[i-1]
 	bool* acc_delta_choice = nullptr;
-	int mask;
+	uint32_t mask;
 	int ell = -1;
 	uint32_t upper_bound;
 	uint32_t cnt;
@@ -128,7 +128,7 @@ public:
 	/// @brief 
 	/// @param ot The preprocessed OT used for GGM tree expansion
 	/// @param pre_cot_data The OT data used for malicious check
-	void bootstrap(OTPre<IO> * ot, block *pre_cot_data) {
+	void bootstrap(SimpleOTPre<IO> * ot, block *pre_cot_data) {
 		if(party == BOB) consist_check_chi_alpha = new block[batch_tree_n * B];
 		consist_check_VW = new block[batch_tree_n * B];
 

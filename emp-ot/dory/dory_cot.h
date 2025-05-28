@@ -15,7 +15,7 @@ public:
 	DualLPNParameter param;
 	int64_t ot_limit;
 
-	DoryCOT(int party, int threads, T **ios, bool malicious = false, bool run_setup = true, 
+	DoryCOT(int party, int threads, T **ios, bool malicious = false, bool run_setup = true, bool run_bootstrap = true,
 DualLPNParameter param = dory_b13, std::string pre_file="");
 	
 
@@ -24,6 +24,8 @@ DualLPNParameter param = dory_b13, std::string pre_file="");
 	void setup(block Deltain, std::string pre_file = "", bool *choice=nullptr, block seed=zero_block);
 
 	void setup(std::string pre_file = "", bool *choice = nullptr, block seed= zero_block);
+
+	void bootstrap();
 
 	void send_cot(block * data, int64_t length) override;
 
@@ -40,6 +42,9 @@ DualLPNParameter param = dory_b13, std::string pre_file="");
 	int disassemble_state(const void * data, int64_t size);
 
 	int64_t state_size();
+
+	int64_t multithread_eval_batch_size();
+
 private:
 	block ch[2];
 
@@ -55,8 +60,8 @@ private:
 
 	std::string pre_ot_filename;
 
-	BaseCot<T> *base_cot = nullptr;
-	OTPre<T> *pre_ot = nullptr;
+	DoryBaseCot<T> *base_cot = nullptr;
+	SimpleOTPre<T> *pre_ot = nullptr;
 	ThreadPool *pool = nullptr;
 	StreamCotReg<T, B> *stream_cot = nullptr;
 	
@@ -70,7 +75,7 @@ private:
 
 	void extend_initialization();
 
-	void extend_full(block* ot_output, StreamCotReg<T, B> *mpfss, OTPre<T> *preot, 
+	void extend_full(block* ot_output, StreamCotReg<T, B> *mpfss, SimpleOTPre<T> *preot, 
 		block *ot_input);
 
 	void extend_full(block *ot_buffer);

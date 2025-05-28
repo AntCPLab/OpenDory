@@ -32,20 +32,20 @@ static std::string DORY_PRE_OT_DATA_REG_RECV_FILE = "./data/dory_pre_ot_data_reg
 // const static DualLPNParameter dory_b11 = DualLPNParameter(10180608, 4971, 11, 55296, 108, 9, 7);
 
 class DualLPNParameter { public:
-	int64_t n, t, log_bin_sz, ell;
+	uint32_t n, t, log_bin_sz, ell;
 	DualLPNParameter() {}
-	DualLPNParameter(int64_t n, int64_t t, int64_t log_bin_sz, int64_t ell)
+	DualLPNParameter(uint32_t n, uint32_t t, uint32_t log_bin_sz, uint32_t ell)
 		: n(n), t(t), log_bin_sz(log_bin_sz), ell(ell) {
 
 		if(n != t * (1<<log_bin_sz))
 			error("LPN parameter not matched");	
 	}
 
-	int64_t pre_ot_size() {
+	uint32_t pre_ot_size() {
 		return t * (log_bin_sz + 1) + 128;
 	}
 
-	int ot_limit() const {
+	uint32_t ot_limit() const {
 		return n / 5;
 	}
 };
@@ -57,6 +57,8 @@ class DualLPNParameter { public:
 
 const static DualLPNParameter dory_b13 = DualLPNParameter(9781248, 1194, 13, 7);
 // const static DualLPNParameter dory_b13_pre = DualLPNParameter(93184, 91, 10, 7);
+
+const static DualLPNParameter dory_b15 = DualLPNParameter(51478528, 1571, 15, 7);
 
 const static DualLPNParameter dory_b18 = DualLPNParameter(293601280, 1120, 18, 9);
 // const static DualLPNParameter dory_b12_pre = DualLPNParameter(30720, 120, 8, 7);

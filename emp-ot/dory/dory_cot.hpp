@@ -1,6 +1,6 @@
 template<typename T, int B>
 DoryCOT<T, B>::DoryCOT(int party, int threads, T **ios,
-		bool malicious, bool run_setup, DualLPNParameter param, std::string pre_file) {
+		bool malicious, bool run_setup, bool run_bootstrap, DualLPNParameter param, std::string pre_file) {
 	this->party = party;
 	this->threads = threads;
 	io = ios[0];
@@ -8,7 +8,7 @@ DoryCOT<T, B>::DoryCOT(int party, int threads, T **ios,
 	this->is_malicious = malicious;
 	one = makeBlock(0xFFFFFFFFFFFFFFFFLL,0xFFFFFFFFFFFFFFFELL);
 	ch[0] = zero_block;
-	base_cot = new BaseCot<T>(party, io, malicious);
+	base_cot = new DoryBaseCot<T>(party, io, malicious);
 	pool = new ThreadPool(threads);
 	this->param = param;
 
@@ -22,6 +22,10 @@ DoryCOT<T, B>::DoryCOT(int party, int threads, T **ios,
 			Delta = Delta ^ 0x1;
 			setup(Delta, pre_file);
 		} else setup(pre_file);
+
+		if(run_bootstrap) {
+			bootstrap();
+		}
 	}
 }
 
@@ -43,7 +47,7 @@ void DoryCOT<T, B>::extend_initialization() {
 	stream_cot = new StreamCotReg<T, B>(party, threads, param, pool, ios);
 	if(is_malicious) stream_cot->set_malicious();
 
-	pre_ot = new OTPre<T>(io, stream_cot->tree_height, stream_cot->tree_n);
+	pre_ot = new SimpleOTPre<T>(io, stream_cot->tree_height, stream_cot->tree_n);
 	M = pre_ot->n + stream_cot->consist_check_cot_num;
 	// [TODO] Need to modify the calculation of ot_limit.
 	ot_limit = param.ot_limit() - M;
@@ -51,26 +55,7 @@ void DoryCOT<T, B>::extend_initialization() {
 }
 
 template<typename T, int B>
-void DoryCOT<T, B>::extend_full(block* ot_output, StreamCotReg<T, B> *stream_cot, OTPre<T> *preot, 
-		block *ot_input) {
-	if(party == ALICE) stream_cot->sender_init(Delta);
-	else stream_cot->recver_init();
-	stream_cot->bootstrap(preot, ot_input);
-	stream_cot->eval_full(ot_output);
-}
-
-template<typename T, int B>
-void DoryCOT<T, B>::extend_full(block *ot_buffer) {
-	if(party == ALICE)
-	    pre_ot->send_pre(ot_pre_data, Delta);
-	else pre_ot->recv_pre(ot_pre_data);
-	// [TODO] Need to advance ot_pre_data
-	extend_full(ot_buffer, stream_cot, pre_ot, ot_pre_data);
-	memcpy(ot_pre_data, ot_buffer + ot_limit, M*sizeof(block));
-}
-
-template<typename T, int B>
-void DoryCOT<T, B>::extend_limit(block *ot_buffer, int64_t num) {
+void DoryCOT<T, B>::bootstrap() {
 	if(party == ALICE) {
 	    pre_ot->send_pre(ot_pre_data, Delta);
 		stream_cot->sender_init(Delta);
@@ -82,6 +67,33 @@ void DoryCOT<T, B>::extend_limit(block *ot_buffer, int64_t num) {
 	// [TODO] Need to advance ot_pre_data
 	stream_cot->bootstrap(pre_ot, ot_pre_data);
 	stream_cot->eval(ot_pre_data, (uint32_t)M);
+}
+
+template<typename T, int B>
+void DoryCOT<T, B>::extend_full(block* ot_output, StreamCotReg<T, B> *stream_cot, SimpleOTPre<T> *preot, 
+		block *ot_input) {
+	if(party == ALICE) stream_cot->sender_init(Delta);
+	else stream_cot->recver_init();
+	stream_cot->bootstrap(preot, ot_input);
+	stream_cot->eval_full(ot_output);
+}
+
+template<typename T, int B>
+void DoryCOT<T, B>::extend_full(block *ot_buffer) {
+	// if(party == ALICE)
+	//     pre_ot->send_pre(ot_pre_data, Delta);
+	// else pre_ot->recv_pre(ot_pre_data);
+	// // [TODO] Need to advance ot_pre_data
+	// extend_full(ot_buffer, stream_cot, pre_ot, ot_pre_data);
+	// memcpy(ot_pre_data, ot_buffer + ot_limit, M*sizeof(block));
+	bootstrap();
+	stream_cot->eval(ot_buffer, silent_ot_left());
+}
+
+template<typename T, int B>
+void DoryCOT<T, B>::extend_limit(block *ot_buffer, int64_t num) {
+	bootstrap();
+	// stream_cot->eval(ot_pre_data, (uint32_t)M);
 	stream_cot->eval(ot_buffer, (uint32_t)num);
 }
 
@@ -289,6 +301,11 @@ template<typename T, int B>
 void DoryCOT<T, B>::recv_cot(block* data, const bool * b, int64_t length) {
 	rcot(data, length);
 	online_recver(data, b, length);
+}
+
+template<typename T, int B>
+int64_t DoryCOT<T, B>::multithread_eval_batch_size() {
+	return threads * StreamCotReg<T, B>::EVAL_SIZE * 32;
 }
 
 // template<typename T>

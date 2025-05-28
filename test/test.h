@@ -3,6 +3,14 @@
 #include <iostream>
 using namespace emp;
 
+int comm(NetIO **ios, int threads) {
+	int comm = 0;
+	for (int i = 0; i < threads; i++) {
+		comm += ios[i]->counter;
+	}
+	return comm;
+}
+
 template <typename T>
 double test_ot(T * ot, NetIO *io, int party, int64_t length) {
 	block *b0 = new block[length], *b1 = new block[length],
@@ -127,8 +135,30 @@ double test_rot(T* ot, NetIO *io, int party, int64_t length) {
 	return t;
 }
 
+template<typename T>
+void validate(T* ot, NetIO *io, int party,  block *b, int length) {
+	io->sync();
+	if (party == ALICE) {
+		io->send_block(&ot->Delta, 1);
+		io->send_block(b, length);
+	}
+	else if (party == BOB) {
+		block ch[2];
+		ch[0] = zero_block;
+		block *b0 = new block[length];
+		io->recv_block(ch+1, 1);
+		io->recv_block(b0, length);
+		for (int64_t i = 0; i < length; ++i) {
+			b[i] = b[i] ^ ch[getLSB(b[i])];
+		}
+		if (!cmpBlock(b, b0, length))
+			error("RCOT failed");
+		delete[] b0;
+	}
+}
+
 template <typename T>
-double test_rcot(T* ot, NetIO *io, int party, int64_t length, bool inplace) {
+double test_rcot(T* ot, NetIO *io, int party, int64_t length, bool inplace, bool check_correctness=false) {
 	block *b = nullptr;
 	PRG prg;
 
@@ -151,24 +181,56 @@ double test_rcot(T* ot, NetIO *io, int party, int64_t length, bool inplace) {
 		ot->rcot_inplace(b, mem_size);
 	}
 	long long t = time_from(start);
+	if (check_correctness) {
+		validate(ot, io, party, b, length);
+	}
+	// io->sync();
+	// if (party == ALICE) {
+	// 	io->send_block(&ot->Delta, 1);
+	// 	io->send_block(b, mem_size);
+	// }
+	// else if (party == BOB) {
+	// 	block ch[2];
+	// 	ch[0] = zero_block;
+	// 	block *b0 = new block[mem_size];
+	// 	io->recv_block(ch+1, 1);
+	// 	io->recv_block(b0, mem_size);
+	// 	for (int64_t i = 0; i < mem_size; ++i) {
+	// 		b[i] = b[i] ^ ch[getLSB(b[i])];
+	// 	}
+	// 	if (!cmpBlock(b, b0, mem_size))
+	// 		error("RCOT failed");
+	// 	delete[] b0;
+	// }
+	std::cout << "Tests passed.\t";
+	delete[] b;
+	return t;
+}
+
+
+template <typename T>
+double test_rcot_stream(T* ot, NetIO *io, int party, int64_t length, bool check_correctness=false) {
+
 	io->sync();
-	if (party == ALICE) {
-		io->send_block(&ot->Delta, 1);
-		io->send_block(b, mem_size);
-	}
-	else if (party == BOB) {
-		block ch[2];
-		ch[0] = zero_block;
-		block *b0 = new block[mem_size];
-		io->recv_block(ch+1, 1);
-		io->recv_block(b0, mem_size);
-		for (int64_t i = 0; i < mem_size; ++i) {
-			b[i] = b[i] ^ ch[getLSB(b[i])];
+	auto start = clock_start();
+
+	int64_t batch_size = ot->multithread_eval_batch_size();
+	block* b = new block[batch_size];
+	int j = 0;
+	for (j = 0; j <= length-batch_size; j += batch_size) {
+		ot->rcot(b, batch_size);
+
+		if (check_correctness) {
+			validate(ot, io, party, b, batch_size);
 		}
-		if (!cmpBlock(b, b0, mem_size))
-			error("RCOT failed");
-		delete[] b0;
 	}
+	if (j < length) {
+		ot->rcot(b, length - j);
+		if (check_correctness)
+			validate(ot, io, party, b, length-j);
+	}
+	long long t = time_from(start);
+	
 	std::cout << "Tests passed.\t";
 	delete[] b;
 	return t;

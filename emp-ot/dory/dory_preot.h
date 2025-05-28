@@ -22,11 +22,11 @@ class DoryOTPre { public:
 	int count;
 	block global_delta;
 
-	OTPre<IO>* preot;
+	SimpleOTPre<IO>* preot;
 
 	PRG prg;
 
-	DoryOTPre(OTPre<IO>* preot) {
+	DoryOTPre(SimpleOTPre<IO>* preot) {
 		this->preot = preot;
 		n_units = preot->n / preot->unit_length;
 		unit_length = preot->unit_length - 1;

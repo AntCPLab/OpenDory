@@ -1,11 +1,11 @@
-#ifndef COT_H__
-#define COT_H__
+#ifndef DORY_COT_H__
+#define DORY_COT_H__
 
 #include "emp-ot/iknp.h"
 #include "emp-ot/dory/preot.h"
 
 template<typename IO>
-class BaseCot { public:
+class DoryBaseCot { public:
    int party;
 	block one, minusone;
 	block ot_delta;
@@ -13,7 +13,7 @@ class BaseCot { public:
 	IKNP<IO> *iknp;
 	bool malicious = false;
 
-	BaseCot(int party, IO *io, bool malicious = false) {
+	DoryBaseCot(int party, IO *io, bool malicious = false) {
 		this->party = party;
 		this->io = io;
 		this->malicious = malicious;
@@ -22,7 +22,7 @@ class BaseCot { public:
 		one = makeBlock(0x0LL, 0x1LL);
 	}
 	
-	~BaseCot() {
+	~DoryBaseCot() {
 		delete iknp;
 	}
 
@@ -75,7 +75,7 @@ class BaseCot { public:
 		}
 	}
 
-	void cot_gen(OTPre<IO> *pre_ot, int64_t size, bool * pre_bool = nullptr) {
+	void cot_gen(SimpleOTPre<IO> *pre_ot, int64_t size, bool * pre_bool = nullptr) {
 		block *ot_data = new block[size];
 		if (this->party == ALICE) {
 			iknp->send_cot(ot_data, size);

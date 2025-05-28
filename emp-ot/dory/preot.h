@@ -1,11 +1,11 @@
-#ifndef _PRE_OT__
-#define _PRE_OT__
+#ifndef SIMPLE_PRE_OT_H
+#define SIMPLE_PRE_OT_H
 #include "emp-tool/emp-tool.h"
 #include "emp-ot/dory/performance.h"
 using namespace emp;
 
 template<typename IO>
-class OTPre { public:
+class SimpleOTPre { public:
 	IO* io;
 	block * pre_data = nullptr;
 	bool * bits = nullptr;
@@ -13,7 +13,7 @@ class OTPre { public:
 
 	int unit_length, count;
 	block Delta;
-	OTPre(IO* io, int unit_length, int times) {
+	SimpleOTPre(IO* io, int unit_length, int times) {
 		this->io = io;
 		this->unit_length = unit_length;
 		n = unit_length*times;
@@ -22,7 +22,7 @@ class OTPre { public:
 		count = 0;
 	}
 
-	~OTPre() {
+	~SimpleOTPre() {
 		if (pre_data != nullptr)
 			delete[] pre_data;
 
@@ -92,4 +92,4 @@ class OTPre { public:
 		}
 	}
 };
-#endif// _PRE_OT__
+#endif// SIMPLE_PRE_OT_H
