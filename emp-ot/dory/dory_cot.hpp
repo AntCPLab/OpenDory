@@ -219,8 +219,8 @@ void DoryCOT<T, B>::write_pre_data128_to_file(void* loc, __uint128_t delta, std:
 	FileIO fio(filename.c_str(), false);
 	fio.send_data(&party, sizeof(int64_t));
 	if(party == ALICE) fio.send_data(&delta, 16);
-	fio.send_data(&param.n, sizeof(int64_t));
-	fio.send_data(&param.t, sizeof(int64_t));
+	fio.send_data(&param.n, sizeof(uint32_t));
+	fio.send_data(&param.t, sizeof(uint32_t));
 	fio.send_data(loc, param.pre_ot_size()*16);
 }
 
@@ -232,9 +232,9 @@ __uint128_t DoryCOT<T, B>::read_pre_data128_from_file(void* pre_loc, std::string
 	if(in_party != party) error("wrong party");
 	__uint128_t delta = 0;
 	if(party == ALICE) fio.recv_data(&delta, 16);
-	int64_t nin, tin;
-	fio.recv_data(&nin, sizeof(int64_t));
-	fio.recv_data(&tin, sizeof(int64_t));
+	uint32_t nin, tin;
+	fio.recv_data(&nin, sizeof(uint32_t));
+	fio.recv_data(&tin, sizeof(uint32_t));
 	if(nin != param.n || tin != param.t)
 		error("wrong parameters");
 	fio.recv_data(pre_loc, param.pre_ot_size()*16);

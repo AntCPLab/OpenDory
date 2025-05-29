@@ -17,6 +17,7 @@ class DoryOTPre { public:
 
 	block * pre_data = nullptr;
 	bool * bits = nullptr;
+	bool * d = nullptr;
 
 	int n, unit_length, n_units;
 	int count;
@@ -38,6 +39,7 @@ class DoryOTPre { public:
 
 		pre_data = new block[n];
 		bits = new bool[n];
+		d = new bool[n];
 
 		global_delta = preot->Delta;
 		count = 0;
@@ -50,6 +52,9 @@ class DoryOTPre { public:
 		if (bits != nullptr)
 			delete[] bits;
 
+		if (d != nullptr)
+			delete[] d;
+
 		if (unit_offsets != nullptr)
 			delete[] unit_offsets;
 		
@@ -58,8 +63,7 @@ class DoryOTPre { public:
 	}
 
 	void sender_refactor() {
-
-		bool* d = new bool[n];
+		// bool* d = new bool[n];
 		io->recv_bool(d, n * sizeof(bool));
 
 		for (int i = 0; i < n_units; i++) {
@@ -71,8 +75,7 @@ class DoryOTPre { public:
 				}
 			}
 		}
-
-		delete[] d;
+		// delete[] d;
 
 		// io->send_block(pre_data, n);
 		// io->send_block(unit_offsets, n_units);
@@ -83,7 +86,7 @@ class DoryOTPre { public:
 		// Sample new choice bits
 		prg.random_bool(bits, n);
 		
-		bool* d = new bool[n];
+		// bool* d = new bool[n];
 		for (int i = 0; i < n_units; i++) {
 			unit_choices[i] = preot->bits[i * preot->unit_length];
 			unit_offsets[i] = preot->pre_data[i * preot->unit_length];
@@ -97,7 +100,8 @@ class DoryOTPre { public:
 			}
 		}
 		io->send_bool(d, n * sizeof(bool));
-		delete[] d;
+		io->flush();
+		// delete[] d;
 
 		// std::cout << "n=" << n << ", unit length = " << unit_length << std::endl;
 		// block* sender_blocks = new block[n];
