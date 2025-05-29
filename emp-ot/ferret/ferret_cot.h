@@ -47,6 +47,7 @@ PrimalLPNParameter param = ferret_b13, std::string pre_file="");
 	int disassemble_state(const void * data, int64_t size);
 
 	int64_t state_size();
+	void extend_f2k();
 private:
 	block ch[2];
 
@@ -85,7 +86,7 @@ private:
 
 	void extend_f2k(block *ot_buffer);
 
-	void extend_f2k();
+
 
 	int64_t silent_ot_left();
 
