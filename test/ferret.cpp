@@ -16,11 +16,17 @@ void test_ferret(int party, NetIO **ios, int threads, int64_t num_ot, bool is_ma
 	// RCOT
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	int64_t num = 1 << num_ot;
+	num = 10000000;
 	double ot_time = test_rcot<FerretCOT<NetIO>>(ferretcot, ios[0], party, num, false);
 	double ot_throughput = double(num) / ot_time * 1e6;
 	cout << (is_malicious? "Active" : "Passive") << " FERRET RCOT\tTime:\t"<< ot_time/1000 << " ms\tThroughput:\t" << ot_throughput <<" OTps\tPer OT:\t" << (ot_time / num) << " micro secs" <<endl;
 
 	cout << "Comm: " << comm(ios, threads) / 1e6 << " MB" << endl;
+
+	start = clock_start();
+	ferretcot->extend_f2k();
+	timeused = time_from(start);
+	std::cout << "Worst case latency: " << timeused / 1000 << "ms" << std::endl;
 
 	// RCOT inplace
 	// The RCOTs will be generated at user buffer

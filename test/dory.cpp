@@ -22,11 +22,11 @@ void test_dory(int party, NetIO **ios, int threads, int64_t num_ot, bool is_mali
 
 	cout << "Comm: " << comm(ios, threads) / 1e6 << " MB" << endl;
 
-	// RCOT inplace
-	// The RCOTs will be generated at user buffer
-	// Get the buffer size needed by calling byte_memory_need_inplace()
-	// uint64_t batch_size = dorycot->ot_limit;
-	// cout <<"Active DORY RCOT inplace\t"<<double(batch_size)/test_rcot<DoryCOT<NetIO>>(dorycot, ios[0], party, batch_size, true)*1e6<<" OTps"<<endl;
+	start = clock_start();
+	dorycot->bootstrap();
+	timeused = time_from(start);
+	std::cout << "Worst case latency: " << timeused / 1000 << "ms" << std::endl;
+
 	delete dorycot;
 
 	print_profiling();
