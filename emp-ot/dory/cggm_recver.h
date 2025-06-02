@@ -162,8 +162,9 @@ public:
 		for  (int i = 0; i < B; i++)
 			chi_alpha[i] = one;
 		for (int i = 0; i < depth - 1; i++) {
+			vector_gfmul<B>(chi_alpha, chi_alpha, chi_alpha);
 			for (size_t j = 0; j < B; j++) {
-				gfmul(chi_alpha[j], chi_alpha[j], &chi_alpha[j]);
+				// gfmul(chi_alpha[j], chi_alpha[j], &chi_alpha[j]);
 				coeffs[j] = chi_alpha[j];
 				if (!b[i * B + j])
 					gfmul(chi_alpha[j], uh_seed, &chi_alpha[j]);
@@ -178,11 +179,15 @@ public:
 			while (top >= 0) {
 				// We arrive at a leave, don't expand and go back to last level
 				if (dfs_levels[top] >= depth-2) {
-					block r;
-					for(int j = 0; j < B; j++) {
-						gfmul(coeffs[top * B + j], tree_traversal_stack[top * B + j], &r);
-						res[j] ^= r;
-					}
+					// block r;
+					// for(int j = 0; j < B; j++) {
+					// 	gfmul(coeffs[top * B + j], tree_traversal_stack[top * B + j], &r);
+					// 	res[j] ^= r;
+					// }
+					block r[B];
+					vector_gfmul<B>(r, &coeffs[top * B], &tree_traversal_stack[top * B]);
+					for (int i = 0; i < B; i++)
+						res[i] ^= r[i];
 					top--;
 					continue;
 				}

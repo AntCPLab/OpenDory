@@ -147,11 +147,15 @@ class CGGM_Sender { public:
 		while (top >= 0) {
 			// We arrive at a leave, don't expand and go back to last level
 			if (dfs_levels[top] >= depth-2) {
-				block r;
-				for(int i = 0; i < B; i++) {
-					gfmul(coeffs[top * B + i], tree_traversal_stack[top * B + i], &r);
-					res[i] ^= r;
-				}
+				// block r;
+				// for(int i = 0; i < B; i++) {
+				// 	gfmul(coeffs[top * B + i], tree_traversal_stack[top * B + i], &r);
+				// 	res[i] ^= r;
+				// }
+				block r[B];
+				vector_gfmul<B>(r, &coeffs[top * B], &tree_traversal_stack[top * B]);
+				for (int i = 0; i < B; i++)
+					res[i] ^= r[i];
 				top--;
 				continue;
 			}
@@ -164,10 +168,12 @@ class CGGM_Sender { public:
 			top++;
 		}
 
-		for (int i = 0; i < B; i++) {
-			// Multiply everything with seed because the coeffs's powers were one less during the above expansion
-			gfmul(res[i], uh_seed, res + i);
-		}
+		// for (int i = 0; i < B; i++) {
+		// 	// Multiply everything with seed because the coeffs's powers were one less during the above expansion
+		// 	gfmul(res[i], uh_seed, res + i);
+		// }
+		// Multiply everything with seed because the coeffs's powers were one less during the above expansion
+		vector_gfmul<B>(res, res, uh_seed);
 
 		delete[] coeffs;
 	}
