@@ -29,6 +29,8 @@ void test_dory(int party, NetIO **ios, int threads, int64_t num_ot, bool is_mali
 	timeused = time_from(start);
 	std::cout << "Worst case latency: " << timeused / 10 / 1000 << "ms" << std::endl;
 
+	ios[0]->sync();
+
 	delete dorycot;
 
 	print_profiling();
