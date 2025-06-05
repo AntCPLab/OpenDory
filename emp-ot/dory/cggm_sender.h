@@ -131,15 +131,12 @@ class CGGM_Sender { public:
 	*/
 	void ggm_tree_lin_comb(block* res, block uh_seed) {
 
-		block* coeffs = new block[depth * B];
+		block coeff = one;
 		memset(res, 0, B * sizeof(block));
 
 		for (size_t i = 0; i < B; i++) {
 			tree_traversal_stack[B + i] = seed[i];
 			tree_traversal_stack[i] = tree_delta[i] ^ seed[i];
-
-			coeffs[B + i] = one;
-			coeffs[i] = uh_seed;
 		}
 		dfs_levels[0] = dfs_levels[1] = 0;
 
@@ -147,35 +144,22 @@ class CGGM_Sender { public:
 		while (top >= 0) {
 			// We arrive at a leave, don't expand and go back to last level
 			if (dfs_levels[top] >= depth-2) {
-				// block r;
-				// for(int i = 0; i < B; i++) {
-				// 	gfmul(coeffs[top * B + i], tree_traversal_stack[top * B + i], &r);
-				// 	res[i] ^= r;
-				// }
 				block r[B];
-				vector_gfmul<B>(r, &coeffs[top * B], &tree_traversal_stack[top * B]);
+				vector_gfmul<B>(r, &tree_traversal_stack[top * B], coeff);
+				gfmul(coeff, uh_seed, &coeff);
 				for (int i = 0; i < B; i++)
 					res[i] ^= r[i];
 				top--;
 				continue;
 			}
 			ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
-			vector_gfmul<B>(coeffs + (top+1)*B, coeffs + top*B, coeffs + top*B);
-			vector_gfmul<B>(coeffs + top*B, coeffs + (top+1)*B, uh_seed);
-
 			dfs_levels[top] += 1;
 			dfs_levels[top+1] = dfs_levels[top];
 			top++;
 		}
 
-		// for (int i = 0; i < B; i++) {
-		// 	// Multiply everything with seed because the coeffs's powers were one less during the above expansion
-		// 	gfmul(res[i], uh_seed, res + i);
-		// }
 		// Multiply everything with seed because the coeffs's powers were one less during the above expansion
 		vector_gfmul<B>(res, res, uh_seed);
-
-		delete[] coeffs;
 	}
 
 	// compute sum of all leaves with index <= w for tree `tree_idx`
@@ -248,11 +232,6 @@ class CGGM_Sender { public:
 		block uh_seed;
 		io2->recv_block(&uh_seed, 1);
 		ggm_tree_lin_comb(V, uh_seed);
-
-
-		// io2->send_block(V, B);
-		// io2->send_block(tree_delta, B);
-
 	}
 };
 

@@ -157,14 +157,13 @@ public:
 	*/
 	void ggm_tree_lin_comb(block* res, block* chi_alpha, block uh_seed) {
 
-		block* coeffs = new block[depth * B];
+		block* coeffs = new block[B];
 		memset(res, 0, B * sizeof(block));
 		for  (int i = 0; i < B; i++)
 			chi_alpha[i] = one;
 		for (int i = 0; i < depth - 1; i++) {
 			vector_gfmul<B>(chi_alpha, chi_alpha, chi_alpha);
 			for (size_t j = 0; j < B; j++) {
-				// gfmul(chi_alpha[j], chi_alpha[j], &chi_alpha[j]);
 				coeffs[j] = chi_alpha[j];
 				if (!b[i * B + j])
 					gfmul(chi_alpha[j], uh_seed, &chi_alpha[j]);
@@ -173,28 +172,23 @@ public:
 
 				tree_traversal_stack[j] = path_sum[i * B + j];
 			}
+			for (int j = i + 1; j < depth - 1; j++)
+				vector_gfmul<B>(coeffs, coeffs, coeffs);
 
 			dfs_levels[0] = i;
 			int top = 0;
 			while (top >= 0) {
 				// We arrive at a leave, don't expand and go back to last level
 				if (dfs_levels[top] >= depth-2) {
-					// block r;
-					// for(int j = 0; j < B; j++) {
-					// 	gfmul(coeffs[top * B + j], tree_traversal_stack[top * B + j], &r);
-					// 	res[j] ^= r;
-					// }
 					block r[B];
-					vector_gfmul<B>(r, &coeffs[top * B], &tree_traversal_stack[top * B]);
+					vector_gfmul<B>(r, coeffs, &tree_traversal_stack[top * B]);
+					vector_gfmul<B>(coeffs, coeffs, uh_seed);
 					for (int i = 0; i < B; i++)
 						res[i] ^= r[i];
 					top--;
 					continue;
 				}
 				ccrh->batch_node_expand<B>(&tree_traversal_stack[(top+1) * B], &tree_traversal_stack[top * B], &tree_traversal_stack[top * B]);
-				vector_gfmul<B>(coeffs + (top+1)*B, coeffs + top*B, coeffs + top*B);
-				vector_gfmul<B>(coeffs + top*B, coeffs + (top+1)*B, uh_seed);
-
 				dfs_levels[top] += 1;
 				dfs_levels[top+1] = dfs_levels[top];
 				top++;
@@ -206,11 +200,10 @@ public:
 			block r;
 			gfmul(chi_alpha[i], path_sum[(depth-1)*B + i] ^ tree_delta[i], &r);
 			res[i] ^= r;
-
-			// Multiply everything with seed because the coeffs's powers were one less during the above expansion
-			gfmul(res[i], uh_seed, res + i);
-			gfmul(chi_alpha[i], uh_seed, chi_alpha + i);
 		}
+		// Multiply everything with seed because the coeffs's powers were one less during the above expansion
+		vector_gfmul<B>(res, res, uh_seed);
+		vector_gfmul<B>(chi_alpha, chi_alpha, uh_seed);
 
 		delete[] coeffs;
 	}
@@ -291,6 +284,7 @@ public:
 		prg.random_block(&uh_seed, 1);
 		// uh_seed = one;
 		io2->send_block(&uh_seed, 1);
+		io2->flush();
 		ggm_tree_lin_comb(W, chi_alpha, uh_seed);
 
 		// Correction due to different tree deltas
@@ -298,22 +292,6 @@ public:
 			if (!tree_delta_choice[i])
 				chi_alpha[i] = zero_block;
 		}
-
-
-
-		// block sW[B], sDelta[B], sW_W[B], sleaves[B];
-		// io2->recv_block(sW, B);
-		// io2->recv_block(sDelta, B);
-		// for (int i = 0; i < B; i++) {
-		// 	sW_W[i] = sW[i] ^ W[i];
-		// 	block expected;
-		// 	gfmul(chi_alpha[i], sDelta[i], &expected);
-		// 	if (!cmpBlock(&expected, &sW_W[i], 1)) {
-		// 		std::cout << "dory expected: " << expected << ",\t" << "got:\t" << sW_W[i] << std::endl;
-		// 		error("wrong!\n");
-		// 	}
-		// 	std::cout << "test passed" << std::endl;
-		// }
 	}
 };
 #endif
