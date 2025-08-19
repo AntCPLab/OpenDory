@@ -17,7 +17,7 @@ void test_dory(int party, NetIO **ios, int threads, int64_t num_ot, bool is_mali
 	// RCOT
 	// The RCOTs will be generated at internal memory, and copied to user buffer
 	int64_t num = 1 << num_ot;
-	num = 10000000;
+	// num = 10000000;
 	double ot_time = test_rcot_stream<DoryCOT<NetIO, batch_size>>(dorycot, ios[0], party, num, false);
 	double ot_throughput = double(num) / ot_time * 1e6;
 	cout << (is_malicious? "Active" : "Passive") << " DORY RCOT\tTotal Time:\t"<< (timeused + ot_time)/1000 << " ms\tThroughput:\t" << ot_throughput <<" OTps\tPer OT:\t" << (ot_time / num) << " micro secs" <<endl;
