@@ -131,6 +131,7 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 	if(hasfile & hasfile2) {
 		Delta = (block)read_pre_data128_from_file((void*)ot_pre_data, pre_ot_filename);
 	} else {
+		auto start_comm = comm(this->ios, this->threads);
 		if(party == BOB) base_cot->cot_gen_pre();
 		else base_cot->cot_gen_pre(Delta);
 
@@ -166,6 +167,8 @@ void DoryCOT<T, B>::setup(std::string pre_file, bool *choice, block seed) {
 		else {
 			base_cot->cot_gen(ot_pre_data, param.pre_ot_size());
 		}
+		auto end_comm = comm(this->ios, this->threads);
+		std::cout << party << "\tBase cot comm:\t" << (end_comm - start_comm) / 1e6 << " MB, " << param.pre_ot_size() << " OTs"  << std::endl;
 	}
 
 	fut.get();
