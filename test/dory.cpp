@@ -1,6 +1,7 @@
 #include "emp-ot/emp-ot.h"
 #include "test/test.h"
 #include "emp-ot/dory/performance.h"
+#include "emp-ot/utils.h"
 using namespace std;
 
 int port, party;

@@ -3,13 +3,13 @@
 #include <iostream>
 using namespace emp;
 
-int comm(NetIO **ios, int threads) {
-	int comm = 0;
-	for (int i = 0; i < threads; i++) {
-		comm += ios[i]->counter;
-	}
-	return comm;
-}
+// int comm(NetIO **ios, int threads) {
+// 	int comm = 0;
+// 	for (int i = 0; i < threads; i++) {
+// 		comm += ios[i]->counter;
+// 	}
+// 	return comm;
+// }
 
 template <typename T>
 double test_ot(T * ot, NetIO *io, int party, int64_t length) {

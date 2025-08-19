@@ -3,6 +3,14 @@
 
 #include "emp-tool/emp-tool.h"
 
+int comm(NetIO **ios, int threads) {
+	int comm = 0;
+	for (int i = 0; i < threads; i++) {
+		comm += ios[i]->counter;
+	}
+	return comm;
+}
+
 #ifdef __AVX512F__
 inline void mul128x4(__m512i a, __m512i b, __m512i *res1, __m512i *res2) {
 	__m512i tmp3, tmp4, tmp5, tmp6;

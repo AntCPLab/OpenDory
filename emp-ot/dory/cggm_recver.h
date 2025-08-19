@@ -5,7 +5,7 @@
 #include "emp-ot/dory/ccrh.h"
 #include "emp-ot/dory/dory_preot.h"
 #include "emp-ot/dory/performance.h"
-#include "emp-ot/dory/utils.h"
+#include "emp-ot/utils.h"
 
 using namespace emp;
 
