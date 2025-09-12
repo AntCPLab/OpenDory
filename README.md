@@ -1,5 +1,5 @@
 # Dory
-This repo contains a POC implementation of Dory in our submission to IEEE Security & Privacy 2026.
+This repo contains a POC implementation of Dory in our paper published in IEEE Security & Privacy 2026: [*Dory: Streaming PCG with Small Memory*]()
 
 It extends the [emp-ot](https://github.com/emp-toolkit/emp-ot.git) library.
 
