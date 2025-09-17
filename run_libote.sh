@@ -17,9 +17,10 @@ do
             echo "[------ ${net_bandwidths[i]} $t-thread ${sec_names[$s]} ------]" >> libote_$1.txt
             if [ "$1" = "0" ]; then
                 echo "Deleting old OT data, throttle network..."
-                ../../mal2pc/Scripts/throttle.sh ${net_configs[i]}
+                ./throttle.sh ${net_configs[i]}
             fi
-            ../../libOTe/out/build/linux/frontend/frontend_libOTe -t $t -n 10000000 -Silent ${libote_sec_opt[$s]} -multType 8 -r $1 >> libote_$1.txt
+            # NOTE: Update below to your libOTe path
+            ./libOTe/out/build/linux/frontend/frontend_libOTe -t $t -n 10000000 -Silent ${libote_sec_opt[$s]} -multType 8 -r $1 >> libote_$1.txt
             sleep 3;
         done
     done

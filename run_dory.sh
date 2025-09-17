@@ -17,7 +17,7 @@ do
             if [ "$1" = "1" ]; then
                 echo "Deleting old OT data, throttle network..."
                 rm -f ./data/*
-                ../../mal2pc/Scripts/throttle.sh ${net_configs[i]}
+                ./throttle.sh ${net_configs[i]}
             fi
             ./bin/test_dory $1 12345 20 $t 1 $s >> dory_$1.txt
             sleep 1;
